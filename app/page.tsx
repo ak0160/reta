@@ -42,7 +42,7 @@ type Reaction = {
 
 type ReaderMode = "reading" | "shared";
 type LayoutMode = "normal" | "grouped" | "horizontal";
-type LoadMode = "preset" | "search" | "url";
+type LoadMode = "preset" | "url";
 type Paragraph = {
   text: string;
   isHeading?: boolean;
@@ -658,7 +658,12 @@ function buildReadingUnits(paragraphs: Paragraph[]) {
 }
 
 
-const AOZORA_PROXY_URL = "https://api.allorigins.win/raw?url=";
+const AOZORA_PROXY_URLS = [
+  (url: string) => url,
+  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+];
 
 type LoadedAozoraText = {
   title: string;
@@ -681,54 +686,41 @@ type AozoraSearchBook = {
 const RECENT_AOZORA_BOOKS_KEY = "sharedReadingRecentAozoraBooks_v1";
 const AOZORA_BOOK_API_URL = "https://api.bungomail.com/v0/books";
 
-function decodeHtmlEntity(text: string) {
-  if (typeof document === "undefined") {
-    return text
-      .replace(/&nbsp;/g, " ")
-      .replace(/&lt;/g, "＜")
-      .replace(/&gt;/g, "＞")
-      .replace(/&amp;/g, "＆")
-      .replace(/&quot;/g, '"');
-  }
+async function fetchWithFallback(url: string) {
+  let lastError: unknown = null;
 
-  const textarea = document.createElement("textarea");
-  textarea.innerHTML = text;
-  return textarea.value;
-}
+  for (const createUrl of AOZORA_PROXY_URLS) {
+    try {
+      const response = await fetch(createUrl(url));
 
-function stripHtmlTags(html: string) {
-  return decodeHtmlEntity(html.replace(/<[^>]+>/g, "")).trim();
-}
-
-function fetchTextThroughProxy(url: string) {
-  return fetch(`${AOZORA_PROXY_URL}${encodeURIComponent(url)}`).then(
-    async (response) => {
       if (!response.ok) {
-        throw new Error("青空文庫のページ取得に失敗しました");
+        lastError = new Error(`HTTP ${response.status}`);
+        continue;
       }
 
-      return response.text();
-    },
-  );
+      return response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  console.error("fetchWithFallback failed", lastError);
+  throw new Error("外部データの取得に失敗しました。時間をおいて再試行してください");
+}
+
+async function fetchTextThroughProxy(url: string) {
+  const response = await fetchWithFallback(url);
+  const buffer = await response.arrayBuffer();
+
+  try {
+    return new TextDecoder("shift_jis").decode(buffer);
+  } catch {
+    return new TextDecoder("utf-8").decode(buffer);
+  }
 }
 
 async function fetchJsonThroughProxy<T>(url: string): Promise<T> {
-  try {
-    const response = await fetch(url);
-
-    if (response.ok) {
-      return (await response.json()) as T;
-    }
-  } catch {
-    // GitHub Pages上でCORSに止められた場合は公開プロキシ経由に切り替える。
-  }
-
-  const response = await fetch(`${AOZORA_PROXY_URL}${encodeURIComponent(url)}`);
-
-  if (!response.ok) {
-    throw new Error("青空文庫の検索に失敗しました");
-  }
-
+  const response = await fetchWithFallback(url);
   return (await response.json()) as T;
 }
 
@@ -754,22 +746,26 @@ function escapeAozoraSearchPattern(keyword: string) {
 }
 
 async function searchAozoraBooks(keyword: string) {
-  const safeKeyword = escapeAozoraSearchPattern(keyword);
-
+  const safeKeyword = keyword.trim().replace(/[\/]/g, "");
   if (!safeKeyword) return [];
 
-  const searchParams = new URLSearchParams({
-    "作品名": `/${safeKeyword}/`,
-    limit: "12",
-  });
+  const rawSearchUrl =
+    `${AOZORA_BOOK_API_URL}?作品名=/${encodeURIComponent(safeKeyword)}/&limit=12`;
 
-  const data = await fetchJsonThroughProxy<{ books?: Record<string, unknown>[] }>(
-    `${AOZORA_BOOK_API_URL}?${searchParams.toString()}`,
-  );
+  const proxyUrl =
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(rawSearchUrl)}`;
+
+  const response = await fetch(proxyUrl);
+
+  if (!response.ok) {
+    throw new Error(`検索に失敗しました: ${response.status}`);
+  }
+
+  const data = await response.json();
 
   return (data.books ?? [])
     .map(normalizeAozoraBook)
-    .filter((book) => book.cardUrl || book.htmlUrl);
+    .filter((book: AozoraSearchBook) => book.cardUrl || book.htmlUrl);
 }
 
 function loadRecentAozoraBooksFromStorage() {
@@ -821,6 +817,28 @@ function extractXhtmlUrlFromCard(cardHtml: string, cardUrl: string) {
   if (!targetHref) return null;
 
   return getAbsoluteAozoraUrl(targetHref, cardUrl);
+}
+
+function decodeHtmlEntity(text: string) {
+  if (typeof document === "undefined") {
+    return text
+      .replace(/&nbsp;/g, " ")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = text;
+  return textarea.value;
+}
+
+function stripHtmlTags(html: string) {
+  return decodeHtmlEntity(
+    html.replace(/<[^>]+>/g, "")
+  ).trim();
 }
 
 function convertRubyHtmlToAozoraNotation(html: string) {
@@ -885,7 +903,13 @@ function parseAozoraXhtml(html: string, sourceUrl: string): LoadedAozoraText {
 }
 
 async function loadAozoraTextFromUrl(url: string): Promise<LoadedAozoraText> {
-  const parsedUrl = new URL(url);
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(url.trim());
+  } catch {
+    throw new Error("URLの形式が正しくありません");
+  }
 
   if (!parsedUrl.hostname.endsWith("aozora.gr.jp")) {
     throw new Error("青空文庫のURLだけ対応しています");
@@ -1111,69 +1135,74 @@ export default function Home() {
     setRecentAozoraBooks(nextBooks);
     saveRecentAozoraBooksToStorage(nextBooks);
   };
+const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
+  const cleanedParagraphs = cleanAozoraText(
+    loadedText.rawText,
+    loadedText.title,
+    loadedText.author,
+  );
 
-  const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
-    const cleanedParagraphs = cleanAozoraText(
-      loadedText.rawText,
-      loadedText.title,
-      loadedText.author,
-    );
+  if (cleanedParagraphs.length === 0) {
+    throw new Error("本文を整形できませんでした");
+  }
 
-    if (cleanedParagraphs.length === 0) {
-      throw new Error("本文を整形できませんでした");
-    }
+  setCustomTitle(loadedText.title);
+  setCustomAuthor(loadedText.author);
+  setParagraphs(cleanedParagraphs);
+  setSelectedWord("");
+  setSearchWord("");
+  setWikiMeaning("");
+  setIsAutoScroll(false);
+  setReturnIndex(null);
 
-    setCustomTitle(loadedText.title);
-    setCustomAuthor(loadedText.author);
-    setParagraphs(cleanedParagraphs);
-    setSelectedWord("");
-    setSearchWord("");
-    setWikiMeaning("");
-    setIsAutoScroll(false);
-    setReturnIndex(null);
+  setCurrentParagraphIndex(0);
+  currentParagraphIndexRef.current = 0;
+  paragraphRefs.current = [];
 
-    setCurrentParagraphIndex(0);
-    currentParagraphIndexRef.current = 0;
-    paragraphRefs.current = [];
-
+  requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        scrollToFocus(0, layoutModeRef.current);
+      scrollToFocus(0, layoutModeRef.current);
 
-        window.setTimeout(() => {
-          isRestoringProgressRef.current = false;
-        }, 300);
-      });
+      window.setTimeout(() => {
+        isRestoringProgressRef.current = false;
+      }, 300);
     });
-  };
+  });
+};
+
 
   const handleSearchAozoraBooks = async () => {
-    const keyword = aozoraSearchQuery.trim();
+  const keyword = aozoraSearchQuery.trim();
 
-    if (!keyword) {
-      setAozoraLoadError("検索したい作品名を入力してください");
-      return;
+  if (!keyword) {
+    setAozoraLoadError("検索したい作品名を入力してください");
+    return;
+  }
+
+  setIsSearchingAozora(true);
+  setAozoraLoadError("");
+
+  try {
+    const books = await searchAozoraBooks(keyword);
+    setAozoraSearchResults(books);
+
+    if (books.length === 0) {
+      setAozoraLoadError("作品が見つかりませんでした。表記を少し変えて検索してください");
     }
+  } catch (error) {
+    console.error(error);
+    const message =
+      error instanceof Error ? error.message : "青空文庫の検索に失敗しました";
 
-    setIsSearchingAozora(true);
-    setAozoraLoadError("");
-
-    try {
-      const books = await searchAozoraBooks(keyword);
-      setAozoraSearchResults(books);
-
-      if (books.length === 0) {
-        setAozoraLoadError("作品が見つかりませんでした。表記を少し変えて検索してください");
-      }
-    } catch (error) {
-      console.error(error);
-      setAozoraLoadError(
-        error instanceof Error ? error.message : "青空文庫の検索に失敗しました",
-      );
-    } finally {
-      setIsSearchingAozora(false);
-    }
-  };
+    setAozoraLoadError(
+      message === "Load failed" || message === "Failed to fetch"
+        ? "検索に失敗しました。通信状況を確認して、もう一度試してください"
+        : message,
+    );
+  } finally {
+    setIsSearchingAozora(false);
+  }
+};
 
   const handleOpenAozoraBook = async (book: AozoraSearchBook) => {
     const targetUrl = book.htmlUrl || book.cardUrl;
@@ -1194,8 +1223,11 @@ export default function Home() {
       rememberRecentAozoraBook(book);
     } catch (error) {
       console.error(error);
+      const message = error instanceof Error ? error.message : "青空文庫の読み込みに失敗しました";
       setAozoraLoadError(
-        error instanceof Error ? error.message : "青空文庫の読み込みに失敗しました",
+        message === "Load failed" || message === "Failed to fetch"
+          ? "読み込みに失敗しました。通信状況を確認して、もう一度試してください"
+          : message,
       );
       isRestoringProgressRef.current = false;
     } finally {
@@ -2061,14 +2093,150 @@ export default function Home() {
     >
       <div className="mx-auto max-w-7xl">
         <header className="mb-5 overflow-hidden rounded-[2rem] border border-[#ebe3d5] bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
-          <div className="grid gap-6 p-7 lg:grid-cols-[1fr_520px] lg:items-center">
+          <div className="grid gap-6 p-7 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
             <div className="relative">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="h-10 w-1 rounded-full bg-[#c79a53]" />
-                <p className="text-xs font-bold tracking-[0.35em] text-[#b98234]">
-                  SHARED READING
-                </p>
+              <div className="mb-6 rounded-[1.7rem] border border-[#eee3d2] bg-[#fffaf0] p-4 shadow-sm">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold tracking-[0.28em] text-[#b98234]">
+                      BOOK SOURCE
+                    </p>
+                    <h2 className="mt-1 text-lg font-bold text-gray-900">
+                      本を開く
+                    </h2>
+                  </div>
+
+                  <span className="rounded-full bg-white px-3 py-1 text-[0.68rem] font-bold text-[#b98234] shadow-sm">
+                    GitHub Pages対応
+                  </span>
+                </div>
+
+                <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#efe7da] p-1">
+                  {[
+                    ["preset", "登録済み"],
+                    ["url", "青空文庫URL"],
+                  ].map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => {
+                        setLoadMode(mode as LoadMode);
+                        setAozoraLoadError("");
+                      }}
+                      className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
+                        loadMode === mode
+                          ? "bg-white text-gray-950 shadow-sm"
+                          : "text-gray-500 hover:text-gray-800"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {loadMode === "preset" && (
+                  <div className="rounded-2xl bg-white p-4 shadow-sm">
+                    <p className="mb-2 text-sm font-bold text-gray-800">
+                      登録済み作品
+                    </p>
+
+                    <select
+                      value={selectedStory}
+                      onChange={(event) => {
+                        setIsAutoScroll(false);
+                        setReturnIndex(null);
+                        setSelectedStory(event.target.value as StoryKey);
+                        setSelectedWord("");
+                        setSearchWord("");
+                        setWikiMeaning("");
+                        setCustomTitle("");
+                        setCustomAuthor("");
+                        setAozoraUrl("");
+                        setAozoraLoadError("");
+                      }}
+                      className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold shadow-sm outline-none"
+                    >
+                      {Object.entries(stories).map(([key, story]) => {
+                        const storyKey = key as StoryKey;
+                        const progress = storyProgressSummaries[storyKey];
+                        const progressLabel = progress
+                          ? `（${progress.percent}%）`
+                          : "（未読）";
+
+                        return (
+                          <option key={key} value={key}>
+                            {story.title} {progressLabel}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
+
+                
+
+                {loadMode === "url" && (
+                  <div className="rounded-2xl bg-white p-4 shadow-sm">
+                    <p className="mb-1 text-sm font-bold text-gray-800">
+                      青空文庫URLから開く
+                    </p>
+                    <p className="mb-3 text-xs leading-relaxed text-gray-400">
+                      青空文庫の図書カードURLかXHTML版URLを貼ると、この読書画面で開けます。
+                    </p>
+
+                    <div className="grid gap-2">
+                      <input
+                        type="url"
+                        value={aozoraUrl}
+                        onChange={(event) => {
+                          setAozoraUrl(event.target.value);
+                          setAozoraLoadError("");
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            handleLoadAozoraUrl();
+                          }
+                        }}
+                        placeholder="https://www.aozora.gr.jp/cards/..."
+                        className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={handleLoadAozoraUrl}
+                        disabled={isLoadingAozora}
+                        className="w-full rounded-2xl bg-gray-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+                      >
+                        {isLoadingAozora ? "読み込み中" : "この本を読む"}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 rounded-2xl bg-gray-50 px-3 py-3 text-xs leading-relaxed text-gray-500">
+                      <p className="font-bold text-gray-700">テスト用URL</p>
+                      <p className="mt-1 break-all">
+                        https://www.aozora.gr.jp/cards/000035/card1567.html
+                      </p>
+                      <p className="mt-2 text-gray-400">
+                        走れメロスなどの図書カードURLに対応しています。
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {aozoraLoadError && (
+                  <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-500">
+                    {aozoraLoadError}
+                  </p>
+                )}
               </div>
+
+  <div className="mb-4 flex items-center gap-3">
+    <div className="h-10 w-1 rounded-full bg-[#c79a53]" />
+    <p className="text-xs font-bold tracking-[0.35em] text-[#b98234]">
+      SHARED READING
+    </p>
+  </div>
 
               <h1 className="font-serif text-5xl font-bold tracking-[-0.04em] text-gray-950">
                 {customTitle || stories[selectedStory].title}
@@ -2091,221 +2259,14 @@ export default function Home() {
 
             <div className="rounded-[1.5rem] border border-gray-100 bg-gray-50/80 p-4">
               <div className="grid gap-3">
-                <div className="rounded-2xl bg-white p-4 shadow-sm">
-  <p className="mb-3 text-sm font-bold text-gray-800">
-    本の読み込み方法
-  </p>
-
-  <div className="grid grid-cols-3 gap-2 rounded-2xl bg-gray-100 p-1">
-    <button
-      type="button"
-      onClick={() => setLoadMode("preset")}
-      className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
-        loadMode === "preset"
-          ? "bg-white text-gray-950 shadow-sm"
-          : "text-gray-500"
-      }`}
-    >
-      登録済み
-    </button>
-
-    <button
-      type="button"
-      onClick={() => setLoadMode("search")}
-      className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
-        loadMode === "search"
-          ? "bg-white text-gray-950 shadow-sm"
-          : "text-gray-500"
-      }`}
-    >
-      青空検索
-    </button>
-
-    <button
-      type="button"
-      onClick={() => setLoadMode("url")}
-      className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
-        loadMode === "url"
-          ? "bg-white text-gray-950 shadow-sm"
-          : "text-gray-500"
-      }`}
-    >
-      URL
-    </button>
-  </div>
-</div>
-                <select
-                  value={selectedStory}
-                  onChange={(event) => {
-  setIsAutoScroll(false);
-  setReturnIndex(null);
-  setSelectedStory(event.target.value as StoryKey);
-  setSelectedWord("");
-  setSearchWord("");
-  setWikiMeaning("");
-  setCustomTitle("");
-  setCustomAuthor("");
-  setAozoraUrl("");
-  setAozoraSearchQuery("");
-  setAozoraSearchResults([]);
-  setAozoraLoadError("");
-}}
-                  className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold shadow-sm outline-none"
-                >
-                  {Object.entries(stories).map(([key, story]) => {
-                    const storyKey = key as StoryKey;
-                    const progress = storyProgressSummaries[storyKey];
-                    const progressLabel = progress
-                      ? `（${progress.percent}%）`
-                      : "（未読）";
-
-                    return (
-                      <option key={key} value={key}>
-                        {story.title} {progressLabel}
-                      </option>
-                    );
-                  })}
-                </select>
-
-                <div className="rounded-2xl bg-white p-4 shadow-sm">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="text-sm font-bold text-gray-800">
-                      青空文庫から本を探す
-                    </p>
-                    <span className="text-[0.68rem] font-bold text-gray-400">
-                      GitHub Pages対応
-                    </span>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="search"
-                      value={aozoraSearchQuery}
-                      onChange={(event) => {
-                        setAozoraSearchQuery(event.target.value);
-                        setAozoraLoadError("");
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          handleSearchAozoraBooks();
-                        }
-                      }}
-                      placeholder="作品名で検索 例：走れメロス"
-                      className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={handleSearchAozoraBooks}
-                      disabled={isSearchingAozora}
-                      className="shrink-0 rounded-xl bg-yellow-300 px-4 py-2 text-sm font-bold text-gray-800 disabled:opacity-50"
-                    >
-                      {isSearchingAozora ? "検索中" : "検索"}
-                    </button>
-                  </div>
-
-                  {aozoraSearchResults.length > 0 && (
-                    <div className="mt-3 max-h-52 space-y-2 overflow-y-auto rounded-2xl bg-gray-50 p-2">
-                      {aozoraSearchResults.map((book) => (
-                        <button
-                          key={`${book.id}-${book.htmlUrl || book.cardUrl}`}
-                          type="button"
-                          onClick={() => handleOpenAozoraBook(book)}
-                          className="w-full rounded-xl bg-white px-3 py-2 text-left shadow-sm transition hover:bg-yellow-50"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-serif text-sm font-bold text-gray-900">
-                              {book.title}
-                            </span>
-                            <span className="shrink-0 rounded-full bg-yellow-100 px-2 py-1 text-[0.65rem] font-bold text-yellow-700">
-                              読む
-                            </span>
-                          </div>
-                          <div className="mt-1 text-xs font-bold text-gray-500">
-                            {book.author}
-                            {book.characters > 0 ? ` ／ ${book.characters.toLocaleString()}字` : ""}
-                          </div>
-                          {book.firstLine ? (
-                            <div className="mt-1 line-clamp-1 text-xs text-gray-400">
-                              {book.firstLine}
-                            </div>
-                          ) : null}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {recentAozoraBooks.length > 0 && aozoraSearchResults.length === 0 && (
-                    <div className="mt-3 rounded-2xl bg-gray-50 p-3">
-                      <p className="mb-2 text-xs font-bold text-gray-500">
-                        最近読んだ青空文庫
-                      </p>
-                      <div className="grid gap-2">
-                        {recentAozoraBooks.map((book) => (
-                          <button
-                            key={`recent-${book.id}`}
-                            type="button"
-                            onClick={() => handleOpenAozoraBook(book)}
-                            className="rounded-xl bg-white px-3 py-2 text-left text-xs shadow-sm transition hover:bg-yellow-50"
-                          >
-                            <span className="font-bold text-gray-800">
-                              {book.title}
-                            </span>
-                            <span className="ml-2 text-gray-400">
-                              {book.author}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <details className="mt-3 rounded-2xl bg-white/80">
-                    <summary className="cursor-pointer text-xs font-bold text-gray-500">
-                      URLで直接開く
-                    </summary>
-
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        type="url"
-                        value={aozoraUrl}
-                        onChange={(event) => {
-                          setAozoraUrl(event.target.value);
-                          setAozoraLoadError("");
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            handleLoadAozoraUrl();
-                          }
-                        }}
-                        placeholder="図書カードURLかXHTML版URL"
-                        className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={handleLoadAozoraUrl}
-                        disabled={isLoadingAozora}
-                        className="shrink-0 rounded-xl bg-gray-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-                      >
-                        {isLoadingAozora ? "読込中" : "開く"}
-                      </button>
-                    </div>
-                  </details>
-
-                  {aozoraLoadError ? (
-                    <p className="mt-2 text-xs font-bold text-red-500">
-                      {aozoraLoadError}
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-xs text-gray-400">
-                      作品名検索とURL読み込みの両方に対応しています。
-                    </p>
-                  )}
+                <div className="rounded-2xl bg-white px-4 py-3 shadow-sm">
+                  <p className="text-xs font-bold tracking-[0.25em] text-[#b98234]">
+                    READING CONTROL
+                  </p>
+                  <h2 className="mt-1 text-base font-bold text-gray-900">
+                    読書操作
+                  </h2>
                 </div>
-
                 <div className="rounded-2xl bg-white px-4 py-3 text-xs font-bold text-gray-500 shadow-sm">
                   {storyProgressSummaries[selectedStory] ? (
                     <>
