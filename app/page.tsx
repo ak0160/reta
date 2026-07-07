@@ -9,17 +9,26 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import { db } from "./firebase";
+import { auth, db } from "./firebase";
 
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   query,
   setDoc,
 } from "firebase/firestore";
+
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut,
+  type User,
+} from "firebase/auth";
 
 type Participant = {
   id: string;
@@ -31,6 +40,11 @@ type Participant = {
 
 type Reaction = {
   storyKey: StoryKey | "";
+  workId?: string;
+  workTitle?: string;
+  workAuthor?: string;
+  workType?: WorkType;
+  sourceUrl?: string;
   emoji: string;
   comment: string;
   paragraphIndex: number;
@@ -43,6 +57,16 @@ type Reaction = {
 type ReaderMode = "reading" | "shared";
 type LayoutMode = "normal" | "grouped" | "horizontal";
 type LoadMode = "preset" | "url";
+type WorkType = "preset" | "url";
+
+type CurrentWork = {
+  workId: string;
+  type: WorkType;
+  title: string;
+  author: string;
+  sourceUrl: string;
+};
+
 type Paragraph = {
   text: string;
   isHeading?: boolean;
@@ -66,6 +90,25 @@ type ReadingProgress = {
   scrollTop?: number;
   readingUnitsLength: number;
   savedAt: number;
+};
+
+type UserReadingProgress = {
+  docId?: string;
+  userId: string;
+  username: string;
+  workId: string;
+  workType: WorkType;
+  title: string;
+  author: string;
+  sourceUrl: string;
+  storyKey: StoryKey | "";
+  layoutMode: LayoutMode;
+  currentParagraphIndex: number;
+  readingUnitsLength: number;
+  percent: number;
+  scrollLeft: number;
+  scrollTop: number;
+  updatedAt: number;
 };
 
 type StoryProgressSummary = {
@@ -92,6 +135,69 @@ const LAST_READING_STATE_KEY = "sharedReadingLastState_v4";
 
 function isStoryKey(value: unknown): value is StoryKey {
   return typeof value === "string" && value in stories;
+}
+
+function getAozoraCanonicalInfo(sourceUrl: string) {
+  try {
+    const url = new URL(sourceUrl);
+    if (!url.hostname.endsWith("aozora.gr.jp")) return null;
+
+    const cardMatch = url.pathname.match(/^\/cards\/([^/]+)\/card(\d+)\.html$/);
+    if (cardMatch) {
+      const [, authorId, workNumber] = cardMatch;
+      return {
+        workId: `aozora_${authorId}_${workNumber}`,
+        cardUrl: `https://www.aozora.gr.jp/cards/${authorId}/card${workNumber}.html`,
+      };
+    }
+
+    const fileMatch = url.pathname.match(/^\/cards\/([^/]+)\/files\/(\d+)(?:_[^/]*)?\.html$/);
+    if (fileMatch) {
+      const [, authorId, workNumber] = fileMatch;
+      return {
+        workId: `aozora_${authorId}_${workNumber}`,
+        cardUrl: `https://www.aozora.gr.jp/cards/${authorId}/card${workNumber}.html`,
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function getCanonicalSourceUrl(sourceUrl: string) {
+  return getAozoraCanonicalInfo(sourceUrl)?.cardUrl ?? sourceUrl;
+}
+
+function createUrlWorkId(sourceUrl: string) {
+  const canonicalInfo = getAozoraCanonicalInfo(sourceUrl);
+  if (canonicalInfo) return canonicalInfo.workId;
+
+  return `url_${btoa(encodeURIComponent(sourceUrl))
+    .replaceAll("=", "")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")}`;
+}
+
+function createPresetWorkId(storyKey: StoryKey) {
+  return `preset_${storyKey}`;
+}
+
+function createPresetWork(storyKey: StoryKey): CurrentWork {
+  const story = stories[storyKey];
+
+  return {
+    workId: createPresetWorkId(storyKey),
+    type: "preset",
+    title: story.title,
+    author: story.author,
+    sourceUrl: "textFile" in story ? story.textFile : storyKey,
+  };
+}
+
+function getFallbackCurrentWork(storyKey: StoryKey): CurrentWork {
+  return createPresetWork(storyKey);
 }
 
 function getReadingProgressKey(storyKey: StoryKey, layoutMode: LayoutMode) {
@@ -296,6 +402,14 @@ function normalizeReaction(raw: Record<string, unknown>): Reaction {
   return {
     storyKey:
       typeof raw.storyKey === "string" ? (raw.storyKey as StoryKey) : "",
+    workId: typeof raw.workId === "string" ? raw.workId : undefined,
+    workTitle: typeof raw.workTitle === "string" ? raw.workTitle : undefined,
+    workAuthor: typeof raw.workAuthor === "string" ? raw.workAuthor : undefined,
+    workType:
+      raw.workType === "preset" || raw.workType === "url"
+        ? raw.workType
+        : undefined,
+    sourceUrl: typeof raw.sourceUrl === "string" ? raw.sourceUrl : undefined,
     emoji: typeof raw.emoji === "string" ? raw.emoji : "👍",
     comment: typeof raw.comment === "string" ? raw.comment : "",
     paragraphIndex: Number(raw.paragraphIndex ?? 0),
@@ -308,6 +422,59 @@ function normalizeReaction(raw: Record<string, unknown>): Reaction {
     time: typeof raw.time === "string" ? raw.time : "",
     createdAt: Number(raw.createdAt ?? 0),
   };
+}
+
+function normalizeUserReadingProgress(
+  raw: Record<string, unknown>,
+): UserReadingProgress {
+  const rawLayoutMode = raw.layoutMode;
+  const layoutMode: LayoutMode =
+    rawLayoutMode === "grouped" || rawLayoutMode === "horizontal"
+      ? rawLayoutMode
+      : "normal";
+
+  const rawWorkType = raw.workType;
+  const workType: WorkType = rawWorkType === "url" ? "url" : "preset";
+
+  const rawStoryKey = raw.storyKey;
+  const storyKey = isStoryKey(rawStoryKey) ? rawStoryKey : "";
+
+  return {
+    userId: typeof raw.userId === "string" ? raw.userId : "",
+    username: typeof raw.username === "string" ? raw.username : "名前なし",
+    workId:
+      workType === "url" && typeof raw.sourceUrl === "string"
+        ? createUrlWorkId(raw.sourceUrl)
+        : typeof raw.workId === "string"
+          ? raw.workId
+          : "",
+    workType,
+    title: typeof raw.title === "string" ? raw.title : "作品名なし",
+    author: typeof raw.author === "string" ? raw.author : "作者不明",
+    sourceUrl:
+      typeof raw.sourceUrl === "string"
+        ? getCanonicalSourceUrl(raw.sourceUrl)
+        : "",
+    storyKey,
+    layoutMode,
+    currentParagraphIndex: Number(raw.currentParagraphIndex ?? 0),
+    readingUnitsLength: Number(raw.readingUnitsLength ?? 0),
+    percent: Number(raw.percent ?? 0),
+    scrollLeft: Number(raw.scrollLeft ?? 0),
+    scrollTop: Number(raw.scrollTop ?? 0),
+    updatedAt: Number(raw.updatedAt ?? 0),
+  };
+}
+
+function formatUpdatedAt(timestamp: number) {
+  if (!timestamp) return "未保存";
+
+  return new Intl.DateTimeFormat("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
 }
 
 function convertAozoraRuby(text: string) {
@@ -933,6 +1100,14 @@ async function loadAozoraTextFromUrl(url: string): Promise<LoadedAozoraText> {
 }
 
 export default function Home() {
+  const [authUser, setAuthUser] = useState<User | null>(null);
+const [authChecked, setAuthChecked] = useState(false);
+const [authMode, setAuthMode] = useState<"login" | "register">("login");
+const [loginName, setLoginName] = useState("");
+const [loginPassword, setLoginPassword] = useState("");
+const [authError, setAuthError] = useState("");
+const [isAuthLoading, setIsAuthLoading] = useState(false);
+
   const [readerMode, setReaderMode] = useState<ReaderMode>("reading");
 
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("normal");
@@ -955,12 +1130,18 @@ export default function Home() {
 
   const [participantId, setParticipantId] = useState("");
   const [joinedAt, setJoinedAt] = useState(0);
-  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
 
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [reactions, setReactions] = useState<Reaction[]>([]);
+  const [userReadingProgresses, setUserReadingProgresses] = useState<
+    UserReadingProgress[]
+  >([]);
 
   const [selectedStory, setSelectedStory] = useState<StoryKey>("wagahai");
+  const [currentWork, setCurrentWork] = useState<CurrentWork>(() =>
+    createPresetWork("wagahai"),
+  );
 
   const [paragraphs, setParagraphs] = useState<Paragraph[]>([]);
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(0);
@@ -992,8 +1173,10 @@ export default function Home() {
 
   const paragraphRefs = useRef<(HTMLDivElement | null)[]>([]);
   const currentParagraphIndexRef = useRef(0);
-  const nameRef = useRef("");
+  const usernameRef = useRef("");
   const selectedStoryRef = useRef<StoryKey>("wagahai");
+  const currentWorkRef = useRef<CurrentWork>(createPresetWork("wagahai"));
+  const pendingResumeProgressRef = useRef<UserReadingProgress | null>(null);
   const layoutModeRef = useRef<LayoutMode>("normal");
   const readingUnitsLengthRef = useRef(0);
   const didLoadLastReadingStateRef = useRef(false);
@@ -1055,9 +1238,120 @@ export default function Home() {
 
   const visibleReactions = useMemo(() => {
     return reactions
-      .filter((reaction) => reaction.storyKey === selectedStory)
+      .filter((reaction) => {
+        if (reaction.workId) {
+          return reaction.workId === currentWork?.workId;
+        }
+
+        return (
+          currentWork?.type === "preset" && reaction.storyKey === selectedStory
+        );
+      })
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [reactions, selectedStory]);
+  }, [reactions, selectedStory, currentWork]);
+
+  const createLoginEmail = (username: string) => {
+    const safeName = username.trim().toLowerCase();
+
+    return `${encodeURIComponent(safeName)}@shared-reading.local`;
+  };
+
+  const handleRegister = async () => {
+    const username = loginName.trim();
+
+    if (!username) {
+      setAuthError("利用者名を入力してください");
+      return;
+    }
+
+    if (loginPassword.length < 6) {
+      setAuthError("パスワードは6文字以上にしてください");
+      return;
+    }
+
+    setIsAuthLoading(true);
+    setAuthError("");
+
+    try {
+      const usernameDocRef = doc(db, "usernames", username);
+      const usernameSnap = await getDoc(usernameDocRef);
+
+      if (usernameSnap.exists()) {
+        setAuthError("この利用者名はすでに使われています");
+        return;
+      }
+
+      const email = createLoginEmail(username);
+      const result = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        loginPassword,
+      );
+
+      await setDoc(doc(db, "users", result.user.uid), {
+        uid: result.user.uid,
+        username,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      await setDoc(usernameDocRef, {
+        uid: result.user.uid,
+        username,
+        createdAt: Date.now(),
+      });
+
+      
+      setUsername(username);
+      usernameRef.current = username;
+      setParticipantId(result.user.uid);
+    } catch (error) {
+      console.error(error);
+      setAuthError("新規登録に失敗しました。別の利用者名で試してください");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    const username = loginName.trim();
+
+    if (!username) {
+      setAuthError("利用者名を入力してください");
+      return;
+    }
+
+    if (!loginPassword) {
+      setAuthError("パスワードを入力してください");
+      return;
+    }
+
+    setIsAuthLoading(true);
+    setAuthError("");
+
+    try {
+      const email = createLoginEmail(username);
+      await signInWithEmailAndPassword(auth, email, loginPassword);
+    } catch (error) {
+      console.error(error);
+      setAuthError("利用者名またはパスワードが違います");
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (participantId) {
+      try {
+        await deleteDoc(doc(db, "participants", participantId));
+      } catch (error) {
+        console.error("ログアウト時の参加者削除失敗", error);
+      }
+    }
+
+    setIsAutoScroll(false);
+    await signOut(auth);
+  };
 
   const resetToBeginning = (nextMode: LayoutMode = layoutMode) => {
     const firstIndex = 0;
@@ -1135,7 +1429,32 @@ export default function Home() {
     setRecentAozoraBooks(nextBooks);
     saveRecentAozoraBooksToStorage(nextBooks);
   };
-const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
+const openLoadedAozoraText = (
+  loadedText: LoadedAozoraText,
+  preferredSourceUrl = loadedText.sourceUrl,
+) => {
+  const canonicalSourceUrl = getCanonicalSourceUrl(preferredSourceUrl);
+
+  const urlWork: CurrentWork = {
+    workId: createUrlWorkId(canonicalSourceUrl),
+    type: "url",
+    title: loadedText.title,
+    author: loadedText.author,
+    sourceUrl: canonicalSourceUrl,
+  };
+
+  setCurrentWork(urlWork);
+  currentWorkRef.current = urlWork;
+
+  void setDoc(
+    doc(db, "works", urlWork.workId),
+    {
+      ...urlWork,
+      updatedAt: Date.now(),
+    },
+    { merge: true },
+  );
+
   const cleanedParagraphs = cleanAozoraText(
     loadedText.rawText,
     loadedText.title,
@@ -1205,7 +1524,7 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
 };
 
   const handleOpenAozoraBook = async (book: AozoraSearchBook) => {
-    const targetUrl = book.htmlUrl || book.cardUrl;
+    const targetUrl = book.cardUrl || book.htmlUrl;
 
     if (!targetUrl) {
       setAozoraLoadError("この作品のURLが見つかりませんでした");
@@ -1218,9 +1537,16 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
 
     try {
       const loadedText = await loadAozoraTextFromUrl(targetUrl);
-      openLoadedAozoraText(loadedText);
-      setAozoraUrl(targetUrl);
-      rememberRecentAozoraBook(book);
+      const canonicalSourceUrl = getCanonicalSourceUrl(book.cardUrl || targetUrl);
+
+      openLoadedAozoraText(loadedText, canonicalSourceUrl);
+      setAozoraUrl(canonicalSourceUrl);
+      rememberRecentAozoraBook({
+        ...book,
+        id: createUrlWorkId(canonicalSourceUrl),
+        cardUrl: canonicalSourceUrl,
+        htmlUrl: loadedText.sourceUrl,
+      });
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : "青空文庫の読み込みに失敗しました";
@@ -1251,13 +1577,16 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
 
     try {
       const loadedText = await loadAozoraTextFromUrl(trimmedUrl);
-      openLoadedAozoraText(loadedText);
+      const canonicalSourceUrl = getCanonicalSourceUrl(trimmedUrl);
+
+      openLoadedAozoraText(loadedText, canonicalSourceUrl);
+      setAozoraUrl(canonicalSourceUrl);
 
       const recentBook: AozoraSearchBook = {
-        id: loadedText.sourceUrl,
+        id: createUrlWorkId(canonicalSourceUrl),
         title: loadedText.title,
         author: loadedText.author,
-        cardUrl: trimmedUrl,
+        cardUrl: canonicalSourceUrl,
         htmlUrl: loadedText.sourceUrl,
         firstLine: "",
         characters: 0,
@@ -1279,6 +1608,51 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
     }
   };
 
+  const handleOpenReadingProgress = async (progress: UserReadingProgress) => {
+    setIsAutoScroll(false);
+    setReturnIndex(null);
+    setSelectedWord("");
+    setSearchWord("");
+    setWikiMeaning("");
+    setLayoutMode(progress.layoutMode);
+    pendingResumeProgressRef.current = progress;
+
+    if (progress.workType === "preset" && isStoryKey(progress.storyKey)) {
+      const nextWork = createPresetWork(progress.storyKey);
+      setLoadMode("preset");
+      setSelectedStory(progress.storyKey);
+      setCurrentWork(nextWork);
+      currentWorkRef.current = nextWork;
+      setCustomTitle("");
+      setCustomAuthor("");
+      setAozoraUrl("");
+      setAozoraLoadError("");
+      return;
+    }
+
+    if (progress.workType === "url" && progress.sourceUrl) {
+      setLoadMode("url");
+      setAozoraUrl(progress.sourceUrl);
+      setIsLoadingAozora(true);
+      setAozoraLoadError("");
+      isRestoringProgressRef.current = true;
+
+      try {
+        const canonicalSourceUrl = getCanonicalSourceUrl(progress.sourceUrl);
+        const loadedText = await loadAozoraTextFromUrl(canonicalSourceUrl);
+        setAozoraUrl(canonicalSourceUrl);
+        openLoadedAozoraText(loadedText, canonicalSourceUrl);
+      } catch (error) {
+        console.error(error);
+        setAozoraLoadError("履歴から作品を開けませんでした");
+        pendingResumeProgressRef.current = null;
+        isRestoringProgressRef.current = false;
+      } finally {
+        setIsLoadingAozora(false);
+      }
+    }
+  };
+
   const showReadingProgressNotice = (message: string) => {
     setReadingProgressNotice(message);
 
@@ -1291,19 +1665,71 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
     }, 1800);
   };
 
+  const saveReadingProgressToFirestore = (
+    nextIndex: number,
+    unitsLength: number,
+    scrollLeft: number,
+    scrollTop: number,
+  ) => {
+    if (!authUser) return;
+    if (unitsLength <= 0) return;
+
+    const activeWork =
+      currentWorkRef.current ?? getFallbackCurrentWork(selectedStoryRef.current);
+
+    const safeIndex = Math.max(0, Math.min(nextIndex, unitsLength - 1));
+    const progressDocId = `${authUser.uid}_${activeWork.workId}`;
+    const percent = getDisplayPercent(safeIndex, unitsLength);
+
+    void setDoc(
+      doc(db, "readingProgress", progressDocId),
+      {
+        userId: authUser.uid,
+        username: usernameRef.current || "名前なし",
+        workId: activeWork.workId,
+        workType: activeWork.type,
+        title: activeWork.title,
+        author: activeWork.author,
+        sourceUrl: activeWork.sourceUrl,
+        storyKey:
+          activeWork.type === "preset" ? selectedStoryRef.current : "",
+        layoutMode: layoutModeRef.current,
+        currentParagraphIndex: safeIndex,
+        readingUnitsLength: unitsLength,
+        percent,
+        scrollLeft,
+        scrollTop,
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    ).catch((error) => {
+      console.error("Firestoreへの読書位置保存失敗", error);
+    });
+  };
+
   const saveReadingProgress = (
     nextIndex = currentParagraphIndexRef.current,
   ) => {
     if (isRestoringProgressRef.current) return;
     if (readingUnits.length <= 0) return;
 
+    const scrollLeft = readingAreaRef.current?.scrollLeft ?? 0;
+    const scrollTop = readingAreaRef.current?.scrollTop ?? 0;
+
     writeReadingProgress(
       selectedStoryRef.current,
       layoutModeRef.current,
       nextIndex,
       readingUnits.length,
-      readingAreaRef.current?.scrollLeft ?? 0,
-      readingAreaRef.current?.scrollTop ?? 0,
+      scrollLeft,
+      scrollTop,
+    );
+
+    saveReadingProgressToFirestore(
+      nextIndex,
+      readingUnits.length,
+      scrollLeft,
+      scrollTop,
     );
 
     refreshStoryProgressSummaries();
@@ -1360,6 +1786,38 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
   };
 
   useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    setAuthUser(user);
+    setAuthChecked(true);
+
+    if (!user) {
+      
+      setUsername("");
+      usernameRef.current = "";
+      return;
+    }
+
+    setParticipantId(user.uid);
+    setJoinedAt(Date.now());
+
+    try {
+      const userSnap = await getDoc(doc(db, "users", user.uid));
+      const userData = userSnap.data();
+      const username =
+        typeof userData?.username === "string" ? userData.username : "";
+
+      
+      setUsername(username);
+      usernameRef.current = username;
+    } catch (error) {
+      console.error("利用者情報の取得失敗", error);
+    }
+  });
+
+  return () => unsubscribe();
+}, []);
+
+  useEffect(() => {
     refreshStoryProgressSummaries();
 
     const lastState = loadLastReadingState();
@@ -1375,35 +1833,27 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
   }, []);
 
   useEffect(() => {
-    let savedId = localStorage.getItem(PARTICIPANT_ID_KEY);
+    if (!authChecked || !authUser) return;
 
-    if (!savedId) {
-      savedId = createParticipantId();
-      localStorage.setItem(PARTICIPANT_ID_KEY, savedId);
-    }
-
-    let savedJoinedAt = Number(localStorage.getItem(PARTICIPANT_JOINED_AT_KEY));
-
-    if (!savedJoinedAt) {
-      savedJoinedAt = Date.now();
-      localStorage.setItem(PARTICIPANT_JOINED_AT_KEY, String(savedJoinedAt));
-    }
-
-    setParticipantId(savedId);
-    setJoinedAt(savedJoinedAt);
-  }, []);
+    setParticipantId(authUser.uid);
+    setJoinedAt(Date.now());
+  }, [authChecked, authUser]);
 
   useEffect(() => {
     currentParagraphIndexRef.current = currentParagraphIndex;
   }, [currentParagraphIndex]);
 
   useEffect(() => {
-    nameRef.current = name;
-  }, [name]);
+  usernameRef.current = username;
+}, [username]);
 
   useEffect(() => {
     selectedStoryRef.current = selectedStory;
   }, [selectedStory]);
+
+  useEffect(() => {
+    currentWorkRef.current = currentWork;
+  }, [currentWork]);
 
   useEffect(() => {
     layoutModeRef.current = layoutMode;
@@ -1415,6 +1865,19 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
 
   useEffect(() => {
     const story = stories[selectedStory];
+    const presetWork = createPresetWork(selectedStory);
+    setCurrentWork(presetWork);
+    currentWorkRef.current = presetWork;
+
+    void setDoc(
+      doc(db, "works", presetWork.workId),
+      {
+        ...presetWork,
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
+
     const requestId = textLoadRequestIdRef.current + 1;
     textLoadRequestIdRef.current = requestId;
 
@@ -1504,6 +1967,31 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
       return;
     }
 
+    const pendingResumeProgress = pendingResumeProgressRef.current;
+
+    if (
+      pendingResumeProgress &&
+      pendingResumeProgress.workId === currentWorkRef.current.workId
+    ) {
+      pendingResumeProgressRef.current = null;
+
+      restoreReadingProgress(
+        {
+          storyKey: isStoryKey(pendingResumeProgress.storyKey)
+            ? pendingResumeProgress.storyKey
+            : selectedStory,
+          layoutMode: pendingResumeProgress.layoutMode,
+          currentParagraphIndex: pendingResumeProgress.currentParagraphIndex,
+          scrollLeft: pendingResumeProgress.scrollLeft,
+          scrollTop: pendingResumeProgress.scrollTop,
+          readingUnitsLength: pendingResumeProgress.readingUnitsLength,
+          savedAt: pendingResumeProgress.updatedAt,
+        },
+        pendingResumeProgress.layoutMode,
+      );
+      return;
+    }
+
     const savedProgress = loadReadingProgressFromStorage(
       selectedStory,
       layoutMode,
@@ -1544,13 +2032,23 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
 
   useEffect(() => {
     const handleLeave = async () => {
+      const scrollLeft = readingAreaRef.current?.scrollLeft ?? 0;
+      const scrollTop = readingAreaRef.current?.scrollTop ?? 0;
+
       writeReadingProgress(
         selectedStoryRef.current,
         layoutModeRef.current,
         currentParagraphIndexRef.current,
         readingUnitsLengthRef.current,
-        readingAreaRef.current?.scrollLeft ?? 0,
-        readingAreaRef.current?.scrollTop ?? 0,
+        scrollLeft,
+        scrollTop,
+      );
+
+      saveReadingProgressToFirestore(
+        currentParagraphIndexRef.current,
+        readingUnitsLengthRef.current,
+        scrollLeft,
+        scrollTop,
       );
 
       if (!participantId) return;
@@ -1584,6 +2082,82 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
     return () => unsubscribe();
   }, []);
 
+
+  useEffect(() => {
+    if (!authUser) {
+      setUserReadingProgresses([]);
+      return;
+    }
+
+    const q = query(collection(db, "readingProgress"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const userProgresses = snapshot.docs
+        .map((docData) => ({
+          ...normalizeUserReadingProgress(docData.data()),
+          docId: docData.id,
+        }))
+        .filter((progress) => progress.userId === authUser.uid)
+        .filter((progress) => progress.workId.trim() !== "");
+
+      const latestByWorkId = new Map<string, UserReadingProgress>();
+
+      userProgresses.forEach((progress) => {
+        const current = latestByWorkId.get(progress.workId);
+        if (!current || progress.updatedAt > current.updatedAt) {
+          latestByWorkId.set(progress.workId, progress);
+        }
+      });
+
+      latestByWorkId.forEach((latest) => {
+        const canonicalDocId = `${authUser.uid}_${latest.workId}`;
+
+        if (latest.docId !== canonicalDocId) {
+          void setDoc(
+            doc(db, "readingProgress", canonicalDocId),
+            {
+              userId: latest.userId,
+              username: latest.username,
+              workId: latest.workId,
+              workType: latest.workType,
+              title: latest.title,
+              author: latest.author,
+              sourceUrl: latest.sourceUrl,
+              storyKey: latest.storyKey,
+              layoutMode: latest.layoutMode,
+              currentParagraphIndex: latest.currentParagraphIndex,
+              readingUnitsLength: latest.readingUnitsLength,
+              percent: latest.percent,
+              scrollLeft: latest.scrollLeft,
+              scrollTop: latest.scrollTop,
+              updatedAt: latest.updatedAt,
+            },
+            { merge: true },
+          );
+        }
+      });
+
+      userProgresses.forEach((progress) => {
+        const canonicalDocId = `${authUser.uid}_${progress.workId}`;
+        const latest = latestByWorkId.get(progress.workId);
+
+        if (progress.docId && progress.docId !== canonicalDocId) {
+          void deleteDoc(doc(db, "readingProgress", progress.docId));
+          return;
+        }
+
+      });
+
+      const data = Array.from(latestByWorkId.values())
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 8);
+
+      setUserReadingProgresses(data);
+    });
+
+    return () => unsubscribe();
+  }, [authUser]);
+
   const saveParticipantToFirestore = async (
     nextName: string,
     nextParagraphIndex: number,
@@ -1593,7 +2167,8 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
     await setDoc(
       doc(db, "participants", participantId),
       {
-        name: nextName,
+        name: nextName || usernameRef.current || "名前なし",
+        userId: authUser?.uid ?? participantId,
         paragraphIndex: nextParagraphIndex,
         joinedAt,
         updatedAt: Date.now(),
@@ -1615,7 +2190,7 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
           ...prev,
           {
             id: participantId,
-            name: nameRef.current || "名前なし",
+            name: usernameRef.current || "名前なし",
             paragraphIndex: nextParagraphIndex,
             joinedAt: joinedAt || Date.now(),
             updatedAt: Date.now(),
@@ -1627,7 +2202,7 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
         participant.id === participantId
           ? {
               ...participant,
-              name: nameRef.current || participant.name,
+              name: usernameRef.current || participant.name,
               paragraphIndex: nextParagraphIndex,
               updatedAt: Date.now(),
             }
@@ -1733,7 +2308,7 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
       saveReadingProgress(nearestIndex);
 
       if (isAdmitted) {
-        saveParticipantToFirestore(nameRef.current, nearestIndex);
+        saveParticipantToFirestore(usernameRef.current, nearestIndex);
       }
     });
   };
@@ -1775,7 +2350,7 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
     });
 
     if (isAdmitted) {
-      saveParticipantToFirestore(nameRef.current, safeIndex);
+      saveParticipantToFirestore(usernameRef.current, safeIndex);
     }
   };
 
@@ -1845,7 +2420,7 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
       saveReadingProgress(nearestIndex);
 
       if (isAdmitted) {
-        saveParticipantToFirestore(nameRef.current, nearestIndex);
+        saveParticipantToFirestore(usernameRef.current, nearestIndex);
       }
     };
 
@@ -1890,15 +2465,25 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
   }, [isAutoScroll, layoutMode, isAdmitted, AUTO_SCROLL_SPEED]);
 
   const handleAddReaction = async () => {
-    if (!participantId) return;
+    if (!authUser) return;
+
+    const activeWork =
+      currentWorkRef.current ?? getFallbackCurrentWork(selectedStoryRef.current);
 
     await addDoc(collection(db, "reactions"), {
       storyKey: selectedStoryRef.current,
+      workId: activeWork.workId,
+      workTitle: activeWork.title,
+      workAuthor: activeWork.author,
+      workType: activeWork.type,
+      sourceUrl: activeWork.sourceUrl,
       emoji: reactionEmoji,
       comment: reactionComment,
       paragraphIndex: currentParagraphIndexRef.current,
-      participantId,
-      participantName: nameRef.current.trim() || "名前なし",
+      participantId: authUser.uid,
+      participantName: usernameRef.current.trim() || "名前なし",
+      userId: authUser.uid,
+      username: usernameRef.current.trim() || "名前なし",
       time: new Date().toLocaleTimeString("ja-JP", {
         hour: "2-digit",
         minute: "2-digit",
@@ -2085,6 +2670,99 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
     },
   };
 
+  if (!authChecked) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8]">
+        <p className="text-sm font-bold text-gray-500">読み込み中...</p>
+      </main>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8] px-4">
+        <div className="w-full max-w-md rounded-[2rem] border border-[#eee3d2] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
+          <p className="text-xs font-bold tracking-[0.3em] text-[#b98234]">
+            SHARED READING
+          </p>
+
+          <h1 className="mt-3 text-3xl font-bold text-gray-950">
+            共有読書システム
+          </h1>
+
+          <p className="mt-2 text-sm leading-relaxed text-gray-500">
+            利用者名とパスワードを入力してください。ログイン後、一人読み・共有読みの読書データを同じ利用者として管理します。
+          </p>
+
+          <div className="mt-6 grid gap-4">
+            <input
+              value={loginName}
+              onChange={(event) => {
+                setLoginName(event.target.value);
+                setAuthError("");
+              }}
+              placeholder="利用者名"
+              className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+            />
+
+            <input
+              type="password"
+              value={loginPassword}
+              onChange={(event) => {
+                setLoginPassword(event.target.value);
+                setAuthError("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  if (authMode === "login") {
+                    handleLogin();
+                  } else {
+                    handleRegister();
+                  }
+                }
+              }}
+              placeholder="パスワード（6文字以上）"
+              className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+            />
+
+            {authError && (
+              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-500">
+                {authError}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={authMode === "login" ? handleLogin : handleRegister}
+              disabled={isAuthLoading}
+              className="rounded-2xl bg-gray-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {isAuthLoading
+                ? "処理中..."
+                : authMode === "login"
+                  ? "ログイン"
+                  : "新規登録"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode(authMode === "login" ? "register" : "login");
+                setAuthError("");
+              }}
+              className="rounded-2xl bg-[#fffaf0] px-4 py-3 text-sm font-bold text-[#b98234]"
+            >
+              {authMode === "login"
+                ? "初めて使う場合は新規登録"
+                : "登録済みの場合はログイン"}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main
       tabIndex={0}
@@ -2095,6 +2773,74 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
         <header className="mb-5 overflow-hidden rounded-[2rem] border border-[#ebe3d5] bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
           <div className="grid gap-6 p-7 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
             <div className="relative">
+              <div className="mb-6 rounded-[1.7rem] border border-[#eee3d2] bg-white p-4 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold tracking-[0.28em] text-[#b98234]">
+                      READING HISTORY
+                    </p>
+                    <h2 className="mt-1 text-lg font-bold text-gray-900">
+                      最近読んだ作品
+                    </h2>
+                  </div>
+                  <span className="rounded-full bg-[#fffaf0] px-3 py-1 text-[0.68rem] font-bold text-[#b98234]">
+                    {userReadingProgresses.length}件
+                  </span>
+                </div>
+
+                {userReadingProgresses.length === 0 ? (
+                  <p className="rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold text-gray-400">
+                    まだ読書履歴はありません。作品を少し読み進めるとここに表示されます。
+                  </p>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {userReadingProgresses.map((progress) => (
+                      <button
+                        key={progress.workId}
+                        type="button"
+                        onClick={() => handleOpenReadingProgress(progress)}
+                        className="rounded-2xl border border-gray-100 bg-[#fffaf0] p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                      >
+                        <div className="mb-2 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-black text-gray-950">
+                              {progress.title}
+                            </p>
+                            <p className="mt-1 truncate text-xs font-bold text-gray-500">
+                              {progress.author}
+                            </p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[0.65rem] font-black text-[#b98234]">
+                            {progress.workType === "url" ? "URL" : "登録済み"}
+                          </span>
+                        </div>
+
+                        <div className="mb-2 h-2 overflow-hidden rounded-full bg-white">
+                          <div
+                            className="h-full rounded-full bg-[#facc15]"
+                            style={{
+                              width: `${Math.max(0, Math.min(progress.percent, 100))}%`,
+                            }}
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-gray-500">
+                          <span>{progress.percent}%</span>
+                          <span>
+                            p{progress.currentParagraphIndex} / {progress.readingUnitsLength}
+                          </span>
+                          <span>{formatUpdatedAt(progress.updatedAt)}</span>
+                        </div>
+
+                        <p className="mt-2 text-[0.65rem] font-black text-[#b98234]">
+                          {progress.workType === "url" ? "📚 青空文庫" : "📖 登録済み作品"}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="mb-6 rounded-[1.7rem] border border-[#eee3d2] bg-[#fffaf0] p-4 shadow-sm">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
@@ -2145,7 +2891,12 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
                       onChange={(event) => {
                         setIsAutoScroll(false);
                         setReturnIndex(null);
-                        setSelectedStory(event.target.value as StoryKey);
+                        const nextStoryKey = event.target.value as StoryKey;
+                        const nextWork = createPresetWork(nextStoryKey);
+
+                        setSelectedStory(nextStoryKey);
+                        setCurrentWork(nextWork);
+                        currentWorkRef.current = nextWork;
                         setSelectedWord("");
                         setSearchWord("");
                         setWikiMeaning("");
@@ -2254,6 +3005,17 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
                     {admittedParticipants.length}/{MAX_PARTICIPANTS}
                   </strong>
                 </span>
+              </div>
+
+              <div className="mt-3 inline-flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-5 py-3 text-sm font-bold text-gray-700 shadow-sm">
+                <span>ログイン中：{username || "利用者"}</span>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-500 hover:text-gray-900"
+                >
+                  ログアウト
+                </button>
               </div>
             </div>
 
@@ -2831,37 +3593,13 @@ const openLoadedAozoraText = (loadedText: LoadedAozoraText) => {
             {readerMode === "shared" && (
               <>
                 <div className="rounded-3xl bg-white p-5 shadow-lg">
-                  <h2 className="mb-3 text-lg font-bold">あなたの名前</h2>
-
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(event) => {
-                      setName(event.target.value);
-                      nameRef.current = event.target.value;
-                    }}
-                    onBlur={() => {
-                      saveParticipantToFirestore(
-                        nameRef.current,
-                        currentParagraphIndexRef.current,
-                      );
-                    }}
-                    placeholder="名前を入力"
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      saveParticipantToFirestore(
-                        nameRef.current,
-                        currentParagraphIndexRef.current,
-                      );
-                    }}
-                    className="mt-3 rounded-xl bg-yellow-300 px-4 py-2 text-sm font-bold text-gray-800"
-                  >
-                    名前を保存
-                  </button>
+                  <h2 className="mb-3 text-lg font-bold">ログイン中の利用者</h2>
+                  <div className="rounded-2xl bg-[#fffaf0] px-4 py-3 text-sm font-bold text-gray-800">
+                    {username || "利用者"}
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed text-gray-400">
+                    共有読みの参加者名とリアクション名には、ログイン中の利用者名を使用します。
+                  </p>
                 </div>
 
                 <div className="rounded-3xl bg-white p-5 shadow-lg">
