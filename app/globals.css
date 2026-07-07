@@ -204,10 +204,23 @@ rt {
 
 /* 見出し */
 .reading-heading-unit {
-  font-weight: 700;
-  font-size: 1.25em;
-  letter-spacing: 0.18em;
-  color: #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 4.5rem;
+  min-height: 100%;
+
+  margin-inline: 2rem;
+  padding: 1.5rem 1rem;
+
+  border-radius: 999px;
+  background: #fff7cc;
+
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #92400e;
 }
 
 .reading-heading-unit.is-active {
