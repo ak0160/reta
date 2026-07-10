@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #f5f1e8;
   --foreground: #171717;
 }
 
@@ -13,17 +13,39 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea,
+summary {
+  font: inherit;
+}
+
+button,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+summary::-webkit-details-marker {
+  display: none;
 }
 
 .font-serif {
   font-family: "Noto Serif JP", serif;
 }
 
-/* ルビ */
+/* 繝ｫ繝� */
 ruby {
   ruby-position: over;
   ruby-align: center;
@@ -36,7 +58,7 @@ rt {
   user-select: none;
 }
 
-/* 辞書クリック単語 */
+/* 霎樊嶌繧ｯ繝ｪ繝�け蜊倩ｪ� */
 .dict-word {
   display: inline;
   color: inherit;
@@ -62,7 +84,7 @@ rt {
   box-shadow: none;
 }
 
-/* 縦書き共通 */
+/* 邵ｦ譖ｸ縺榊�騾� */
 .vertical-reading-content {
   display: flex;
   flex-direction: row-reverse;
@@ -91,7 +113,7 @@ rt {
   background: transparent !important;
 }
 
-/* 通常段落モード */
+/* 騾壼ｸｸ谿ｵ關ｽ繝｢繝ｼ繝� */
 .normal-reading-unit {
   position: relative !important;
   overflow: visible;
@@ -99,8 +121,7 @@ rt {
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-
-   padding-top: 1rem;
+  padding-top: 1rem;
 }
 
 .normal-reading-unit.is-active {
@@ -132,7 +153,7 @@ rt {
   z-index: 30 !important;
 }
 
-/* 2文グループモード */
+/* 2譁�げ繝ｫ繝ｼ繝励Δ繝ｼ繝� */
 .two-sentence-layout {
   writing-mode: horizontal-tb !important;
   display: flex;
@@ -202,21 +223,17 @@ rt {
   display: inline;
 }
 
-/* 見出し */
+/* 隕句�縺� */
 .reading-heading-unit {
   display: flex;
   align-items: center;
   justify-content: center;
-
   min-width: 4.5rem;
   min-height: 100%;
-
   margin-inline: 2rem;
   padding: 1.5rem 1rem;
-
   border-radius: 999px;
   background: #fff7cc;
-
   font-size: 2rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -227,7 +244,7 @@ rt {
   background: rgba(254, 240, 138, 0.38) !important;
 }
 
-/* 参加者名札 */
+/* 蜿ょ刈閠�錐譛ｭ */
 .reader-follow-badges {
   position: absolute;
   display: flex;
@@ -297,7 +314,7 @@ rt {
   border-color: rgba(252, 211, 77, 0.95);
 }
 
-/* 使わなくなった古い表示 */
+/* 菴ｿ繧上↑縺上↑縺｣縺溷商縺�｡ｨ遉ｺ */
 .reader-labels,
 .reader-label,
 .reader-labels-horizontal,
@@ -314,7 +331,7 @@ rt {
   display: none !important;
 }
 
-/* 横書きモード */
+/* 讓ｪ譖ｸ縺阪Δ繝ｼ繝� */
 .horizontal-reading-content {
   display: block !important;
   writing-mode: horizontal-tb !important;
@@ -371,4 +388,30 @@ rt {
   border-radius: 999px !important;
   background: rgba(250, 204, 21, 0.95) !important;
   pointer-events: none;
+}
+
+/* 繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ繝舌�繧呈而縺医ａ縺ｫ縺吶ｋ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d7cec0 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #d7cec0;
+  border-radius: 999px;
+}
+
+@media (max-width: 1023px) {
+  .reading-heading-unit {
+    font-size: 1.6rem;
+  }
 }
