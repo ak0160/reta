@@ -151,7 +151,9 @@ function getAozoraCanonicalInfo(sourceUrl: string) {
       };
     }
 
-    const fileMatch = url.pathname.match(/^\/cards\/([^/]+)\/files\/(\d+)(?:_[^/]*)?\.html$/);
+    const fileMatch = url.pathname.match(
+      /^\/cards\/([^/]+)\/files\/(\d+)(?:_[^/]*)?\.html$/,
+    );
     if (fileMatch) {
       const [, authorId, workNumber] = fileMatch;
       return {
@@ -206,7 +208,10 @@ function getReadingProgressKey(storyKey: StoryKey, layoutMode: LayoutMode) {
 
 function getDisplayPercent(index: number, count: number) {
   if (count <= 1) return 0;
-  return Math.round((index / (count - 1)) * 100);
+
+  // スクロール位置の自動判定だけで「完読」にはしない。
+  // 完読ボタンを実装するまでは、最終位置でも最大99%として扱う。
+  return Math.min(99, Math.round((index / (count - 1)) * 100));
 }
 
 function saveLastReadingState(storyKey: StoryKey, layoutMode: LayoutMode) {
@@ -824,12 +829,13 @@ function buildReadingUnits(paragraphs: Paragraph[]) {
   return units;
 }
 
-
 const AOZORA_PROXY_URLS = [
   (url: string) => url,
-  (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url: string) =>
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  (url: string) =>
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
 ];
 
 type LoadedAozoraText = {
@@ -872,7 +878,9 @@ async function fetchWithFallback(url: string) {
   }
 
   console.error("fetchWithFallback failed", lastError);
-  throw new Error("外部データの取得に失敗しました。時間をおいて再試行してください");
+  throw new Error(
+    "外部データの取得に失敗しました。時間をおいて再試行してください",
+  );
 }
 
 async function fetchTextThroughProxy(url: string) {
@@ -891,7 +899,9 @@ async function fetchJsonThroughProxy<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-function normalizeAozoraBook(rawBook: Record<string, unknown>): AozoraSearchBook {
+function normalizeAozoraBook(
+  rawBook: Record<string, unknown>,
+): AozoraSearchBook {
   const title = String(rawBook["作品名"] ?? "青空文庫作品");
   const author = String(rawBook["姓名"] ?? "作者不明");
   const id = String(rawBook["作品ID"] ?? `${title}-${author}`);
@@ -916,11 +926,9 @@ async function searchAozoraBooks(keyword: string) {
   const safeKeyword = keyword.trim().replace(/[\/]/g, "");
   if (!safeKeyword) return [];
 
-  const rawSearchUrl =
-    `${AOZORA_BOOK_API_URL}?作品名=/${encodeURIComponent(safeKeyword)}/&limit=12`;
+  const rawSearchUrl = `${AOZORA_BOOK_API_URL}?作品名=/${encodeURIComponent(safeKeyword)}/&limit=12`;
 
-  const proxyUrl =
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(rawSearchUrl)}`;
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rawSearchUrl)}`;
 
   const response = await fetch(proxyUrl);
 
@@ -970,7 +978,11 @@ function extractXhtmlUrlFromCard(cardHtml: string, cardUrl: string) {
     const href = link.getAttribute("href") ?? "";
     const label = link.textContent ?? "";
 
-    return href.includes("files/") && href.endsWith(".html") && label.includes("XHTML");
+    return (
+      href.includes("files/") &&
+      href.endsWith(".html") &&
+      label.includes("XHTML")
+    );
   });
 
   const fallbackHtmlLink = links.find((link) => {
@@ -1003,9 +1015,7 @@ function decodeHtmlEntity(text: string) {
 }
 
 function stripHtmlTags(html: string) {
-  return decodeHtmlEntity(
-    html.replace(/<[^>]+>/g, "")
-  ).trim();
+  return decodeHtmlEntity(html.replace(/<[^>]+>/g, "")).trim();
 }
 
 function convertRubyHtmlToAozoraNotation(html: string) {
@@ -1101,12 +1111,12 @@ async function loadAozoraTextFromUrl(url: string): Promise<LoadedAozoraText> {
 
 export default function Home() {
   const [authUser, setAuthUser] = useState<User | null>(null);
-const [authChecked, setAuthChecked] = useState(false);
-const [authMode, setAuthMode] = useState<"login" | "register">("login");
-const [loginName, setLoginName] = useState("");
-const [loginPassword, setLoginPassword] = useState("");
-const [authError, setAuthError] = useState("");
-const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [loginName, setLoginName] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
 
   const [readerMode, setReaderMode] = useState<ReaderMode>("reading");
 
@@ -1186,6 +1196,12 @@ const [isAuthLoading, setIsAuthLoading] = useState(false);
   const readingAreaRef = useRef<HTMLDivElement | null>(null);
   const isProgrammaticScrollRef = useRef(false);
   const scrollFrameRef = useRef<number | null>(null);
+  // リロード直後はブラウザの自動スクロール復元やDOM再配置による
+  // scrollイベントを読書操作として扱わない。
+  const isInitialProgressResolvedRef = useRef(false);
+  const isPageLeavingRef = useRef(false);
+  // 実際に復元・操作が完了した最後の安全な位置。終了時はこの値を保存する。
+  const lastStableParagraphIndexRef = useRef(0);
 
   // モード切替時は、読書単位番号ではなく「段落番号」を基準に位置を引き継ぐ。
   // 通常段落・2文グループ・横書きでは読書単位の見え方が違うため、
@@ -1301,7 +1317,6 @@ const [isAuthLoading, setIsAuthLoading] = useState(false);
         createdAt: Date.now(),
       });
 
-      
       setUsername(username);
       usernameRef.current = username;
       setParticipantId(result.user.uid);
@@ -1429,99 +1444,103 @@ const [isAuthLoading, setIsAuthLoading] = useState(false);
     setRecentAozoraBooks(nextBooks);
     saveRecentAozoraBooksToStorage(nextBooks);
   };
-const openLoadedAozoraText = (
-  loadedText: LoadedAozoraText,
-  preferredSourceUrl = loadedText.sourceUrl,
-) => {
-  const canonicalSourceUrl = getCanonicalSourceUrl(preferredSourceUrl);
+  const openLoadedAozoraText = (
+    loadedText: LoadedAozoraText,
+    preferredSourceUrl = loadedText.sourceUrl,
+  ) => {
+    const canonicalSourceUrl = getCanonicalSourceUrl(preferredSourceUrl);
 
-  const urlWork: CurrentWork = {
-    workId: createUrlWorkId(canonicalSourceUrl),
-    type: "url",
-    title: loadedText.title,
-    author: loadedText.author,
-    sourceUrl: canonicalSourceUrl,
+    const urlWork: CurrentWork = {
+      workId: createUrlWorkId(canonicalSourceUrl),
+      type: "url",
+      title: loadedText.title,
+      author: loadedText.author,
+      sourceUrl: canonicalSourceUrl,
+    };
+
+    setCurrentWork(urlWork);
+    currentWorkRef.current = urlWork;
+
+    void setDoc(
+      doc(db, "works", urlWork.workId),
+      {
+        ...urlWork,
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
+
+    const cleanedParagraphs = cleanAozoraText(
+      loadedText.rawText,
+      loadedText.title,
+      loadedText.author,
+    );
+
+    if (cleanedParagraphs.length === 0) {
+      throw new Error("本文を整形できませんでした");
+    }
+
+    setCustomTitle(loadedText.title);
+    setCustomAuthor(loadedText.author);
+    setParagraphs(cleanedParagraphs);
+    setSelectedWord("");
+    setSearchWord("");
+    setWikiMeaning("");
+    setIsAutoScroll(false);
+    setReturnIndex(null);
+
+    setCurrentParagraphIndex(0);
+    currentParagraphIndexRef.current = 0;
+    paragraphRefs.current = [];
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollToFocus(0, layoutModeRef.current);
+
+        window.setTimeout(() => {
+          isRestoringProgressRef.current = false;
+          isProgrammaticScrollRef.current = false;
+          isInitialProgressResolvedRef.current = true;
+          lastStableParagraphIndexRef.current = 0;
+        }, 300);
+      });
+    });
   };
 
-  setCurrentWork(urlWork);
-  currentWorkRef.current = urlWork;
-
-  void setDoc(
-    doc(db, "works", urlWork.workId),
-    {
-      ...urlWork,
-      updatedAt: Date.now(),
-    },
-    { merge: true },
-  );
-
-  const cleanedParagraphs = cleanAozoraText(
-    loadedText.rawText,
-    loadedText.title,
-    loadedText.author,
-  );
-
-  if (cleanedParagraphs.length === 0) {
-    throw new Error("本文を整形できませんでした");
-  }
-
-  setCustomTitle(loadedText.title);
-  setCustomAuthor(loadedText.author);
-  setParagraphs(cleanedParagraphs);
-  setSelectedWord("");
-  setSearchWord("");
-  setWikiMeaning("");
-  setIsAutoScroll(false);
-  setReturnIndex(null);
-
-  setCurrentParagraphIndex(0);
-  currentParagraphIndexRef.current = 0;
-  paragraphRefs.current = [];
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      scrollToFocus(0, layoutModeRef.current);
-
-      window.setTimeout(() => {
-        isRestoringProgressRef.current = false;
-      }, 300);
-    });
-  });
-};
-
-
   const handleSearchAozoraBooks = async () => {
-  const keyword = aozoraSearchQuery.trim();
+    const keyword = aozoraSearchQuery.trim();
 
-  if (!keyword) {
-    setAozoraLoadError("検索したい作品名を入力してください");
-    return;
-  }
-
-  setIsSearchingAozora(true);
-  setAozoraLoadError("");
-
-  try {
-    const books = await searchAozoraBooks(keyword);
-    setAozoraSearchResults(books);
-
-    if (books.length === 0) {
-      setAozoraLoadError("作品が見つかりませんでした。表記を少し変えて検索してください");
+    if (!keyword) {
+      setAozoraLoadError("検索したい作品名を入力してください");
+      return;
     }
-  } catch (error) {
-    console.error(error);
-    const message =
-      error instanceof Error ? error.message : "青空文庫の検索に失敗しました";
 
-    setAozoraLoadError(
-      message === "Load failed" || message === "Failed to fetch"
-        ? "検索に失敗しました。通信状況を確認して、もう一度試してください"
-        : message,
-    );
-  } finally {
-    setIsSearchingAozora(false);
-  }
-};
+    setIsSearchingAozora(true);
+    setAozoraLoadError("");
+
+    try {
+      const books = await searchAozoraBooks(keyword);
+      setAozoraSearchResults(books);
+
+      if (books.length === 0) {
+        setAozoraLoadError(
+          "作品が見つかりませんでした。表記を少し変えて検索してください",
+        );
+      }
+    } catch (error) {
+      console.error(error);
+      const message =
+        error instanceof Error ? error.message : "青空文庫の検索に失敗しました";
+
+      setAozoraLoadError(
+        message === "Load failed" || message === "Failed to fetch"
+          ? "検索に失敗しました。通信状況を確認して、もう一度試してください"
+          : message,
+      );
+    } finally {
+      setIsSearchingAozora(false);
+    }
+  };
 
   const handleOpenAozoraBook = async (book: AozoraSearchBook) => {
     const targetUrl = book.cardUrl || book.htmlUrl;
@@ -1537,7 +1556,9 @@ const openLoadedAozoraText = (
 
     try {
       const loadedText = await loadAozoraTextFromUrl(targetUrl);
-      const canonicalSourceUrl = getCanonicalSourceUrl(book.cardUrl || targetUrl);
+      const canonicalSourceUrl = getCanonicalSourceUrl(
+        book.cardUrl || targetUrl,
+      );
 
       openLoadedAozoraText(loadedText, canonicalSourceUrl);
       setAozoraUrl(canonicalSourceUrl);
@@ -1549,7 +1570,10 @@ const openLoadedAozoraText = (
       });
     } catch (error) {
       console.error(error);
-      const message = error instanceof Error ? error.message : "青空文庫の読み込みに失敗しました";
+      const message =
+        error instanceof Error
+          ? error.message
+          : "青空文庫の読み込みに失敗しました";
       setAozoraLoadError(
         message === "Load failed" || message === "Failed to fetch"
           ? "読み込みに失敗しました。通信状況を確認して、もう一度試してください"
@@ -1675,7 +1699,8 @@ const openLoadedAozoraText = (
     if (unitsLength <= 0) return;
 
     const activeWork =
-      currentWorkRef.current ?? getFallbackCurrentWork(selectedStoryRef.current);
+      currentWorkRef.current ??
+      getFallbackCurrentWork(selectedStoryRef.current);
 
     const safeIndex = Math.max(0, Math.min(nextIndex, unitsLength - 1));
     const progressDocId = `${authUser.uid}_${activeWork.workId}`;
@@ -1691,8 +1716,7 @@ const openLoadedAozoraText = (
         title: activeWork.title,
         author: activeWork.author,
         sourceUrl: activeWork.sourceUrl,
-        storyKey:
-          activeWork.type === "preset" ? selectedStoryRef.current : "",
+        storyKey: activeWork.type === "preset" ? selectedStoryRef.current : "",
         layoutMode: layoutModeRef.current,
         currentParagraphIndex: safeIndex,
         readingUnitsLength: unitsLength,
@@ -1711,19 +1735,25 @@ const openLoadedAozoraText = (
     nextIndex = currentParagraphIndexRef.current,
   ) => {
     if (isRestoringProgressRef.current) return;
+    if (!isInitialProgressResolvedRef.current) return;
+    if (isPageLeavingRef.current) return;
     if (readingUnits.length <= 0) return;
 
     const scrollLeft = readingAreaRef.current?.scrollLeft ?? 0;
     const scrollTop = readingAreaRef.current?.scrollTop ?? 0;
 
-    writeReadingProgress(
-      selectedStoryRef.current,
-      layoutModeRef.current,
-      nextIndex,
-      readingUnits.length,
-      scrollLeft,
-      scrollTop,
-    );
+    // localStorageの保存キーはプリセット作品用なので、URL作品の位置を
+    // 選択中プリセット作品へ誤保存しない。
+    if (currentWorkRef.current.type === "preset") {
+      writeReadingProgress(
+        selectedStoryRef.current,
+        layoutModeRef.current,
+        nextIndex,
+        readingUnits.length,
+        scrollLeft,
+        scrollTop,
+      );
+    }
 
     saveReadingProgressToFirestore(
       nextIndex,
@@ -1744,13 +1774,33 @@ const openLoadedAozoraText = (
 
     isRestoringProgressRef.current = true;
 
+    const savedLength = Math.max(1, Number(progress.readingUnitsLength || 1));
+    const currentLength = Math.max(1, readingUnits.length);
+
+    // 本文の整形結果や区切り数が変わった場合、古いindexを末尾へ丸めず、
+    // 保存時の進捗割合から現在の読書単位へ変換する。
+    const savedRatio =
+      savedLength <= 1
+        ? 0
+        : Math.max(
+            0,
+            Math.min(progress.currentParagraphIndex, savedLength - 1),
+          ) /
+          (savedLength - 1);
+
     const safeIndex = Math.max(
       0,
-      Math.min(progress.currentParagraphIndex, readingUnits.length - 1),
+      Math.min(
+        savedLength === currentLength
+          ? progress.currentParagraphIndex
+          : Math.round(savedRatio * (currentLength - 1)),
+        currentLength - 1,
+      ),
     );
 
     setCurrentParagraphIndex(safeIndex);
     currentParagraphIndexRef.current = safeIndex;
+    lastStableParagraphIndexRef.current = safeIndex;
     updateLocalParticipant(safeIndex);
 
     // 本文位置だけでなく、作品一覧の％表示も復元直後に更新する。
@@ -1769,55 +1819,55 @@ const openLoadedAozoraText = (
         scrollToFocus(safeIndex, targetLayoutMode);
 
         window.setTimeout(() => {
-          if (readingAreaRef.current && targetLayoutMode === "horizontal") {
-            readingAreaRef.current.scrollTop = progress.scrollTop ?? 0;
-          } else if (readingAreaRef.current && progress.scrollLeft > 0) {
-            readingAreaRef.current.scrollLeft = progress.scrollLeft;
-          }
-
+          // 画面幅や本文長に依存する古いscrollLeft / scrollTopは使わない。
+          // 読書単位番号を基準にscrollToFocusで復元する。
           refreshStoryProgressSummaries();
 
           window.setTimeout(() => {
             isRestoringProgressRef.current = false;
-          }, 250);
-        }, 80);
+            isProgrammaticScrollRef.current = false;
+            isInitialProgressResolvedRef.current = true;
+          }, 350);
+        }, 120);
       });
     });
   };
 
   useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, async (user) => {
-    setAuthUser(user);
-    setAuthChecked(true);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setAuthUser(user);
+      setAuthChecked(true);
 
-    if (!user) {
-      
-      setUsername("");
-      usernameRef.current = "";
-      return;
-    }
+      if (!user) {
+        setUsername("");
+        usernameRef.current = "";
+        return;
+      }
 
-    setParticipantId(user.uid);
-    setJoinedAt(Date.now());
+      setParticipantId(user.uid);
+      setJoinedAt(Date.now());
 
-    try {
-      const userSnap = await getDoc(doc(db, "users", user.uid));
-      const userData = userSnap.data();
-      const username =
-        typeof userData?.username === "string" ? userData.username : "";
+      try {
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        const userData = userSnap.data();
+        const username =
+          typeof userData?.username === "string" ? userData.username : "";
 
-      
-      setUsername(username);
-      usernameRef.current = username;
-    } catch (error) {
-      console.error("利用者情報の取得失敗", error);
-    }
-  });
+        setUsername(username);
+        usernameRef.current = username;
+      } catch (error) {
+        console.error("利用者情報の取得失敗", error);
+      }
+    });
 
-  return () => unsubscribe();
-}, []);
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
+    if ("scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+
     refreshStoryProgressSummaries();
 
     const lastState = loadLastReadingState();
@@ -1844,8 +1894,8 @@ const openLoadedAozoraText = (
   }, [currentParagraphIndex]);
 
   useEffect(() => {
-  usernameRef.current = username;
-}, [username]);
+    usernameRef.current = username;
+  }, [username]);
 
   useEffect(() => {
     selectedStoryRef.current = selectedStory;
@@ -1882,8 +1932,9 @@ const openLoadedAozoraText = (
     textLoadRequestIdRef.current = requestId;
 
     const loadText = async () => {
-      // 作品切り替え中の一瞬の0%保存を防ぐ。
+      // 作品切り替え中の一瞬の0%・100%保存を防ぐ。
       isRestoringProgressRef.current = true;
+      isInitialProgressResolvedRef.current = false;
       setCurrentParagraphIndex(0);
       currentParagraphIndexRef.current = 0;
       paragraphRefs.current = [];
@@ -1946,21 +1997,26 @@ const openLoadedAozoraText = (
         requestAnimationFrame(() => {
           scrollToFocus(targetIndex, layoutMode);
 
-          window.setTimeout(() => {
-            writeReadingProgress(
-              selectedStoryRef.current,
-              layoutMode,
-              targetIndex,
-              readingUnits.length,
-              readingAreaRef.current?.scrollLeft ?? 0,
-              readingAreaRef.current?.scrollTop ?? 0,
-            );
+          window.setTimeout(
+            () => {
+              writeReadingProgress(
+                selectedStoryRef.current,
+                layoutMode,
+                targetIndex,
+                readingUnits.length,
+                readingAreaRef.current?.scrollLeft ?? 0,
+                readingAreaRef.current?.scrollTop ?? 0,
+              );
 
-            refreshStoryProgressSummaries();
+              refreshStoryProgressSummaries();
 
-            isRestoringProgressRef.current = false;
-            isProgrammaticScrollRef.current = false;
-          }, layoutMode === "horizontal" ? 320 : 220);
+              lastStableParagraphIndexRef.current = targetIndex;
+              isRestoringProgressRef.current = false;
+              isProgrammaticScrollRef.current = false;
+              isInitialProgressResolvedRef.current = true;
+            },
+            layoutMode === "horizontal" ? 320 : 220,
+          );
         });
       });
 
@@ -1992,6 +2048,20 @@ const openLoadedAozoraText = (
       return;
     }
 
+    // URL作品を新しく開いた場合は、選択中プリセット作品のlocalStorageを
+    // 誤って適用しない。履歴から開いた場合は上のpendingResumeProgressで復元済み。
+    if (currentWorkRef.current.type === "url") {
+      resetToBeginning(layoutMode);
+      lastStableParagraphIndexRef.current = 0;
+
+      window.setTimeout(() => {
+        isRestoringProgressRef.current = false;
+        isProgrammaticScrollRef.current = false;
+        isInitialProgressResolvedRef.current = true;
+      }, 350);
+      return;
+    }
+
     const savedProgress = loadReadingProgressFromStorage(
       selectedStory,
       layoutMode,
@@ -2003,10 +2073,13 @@ const openLoadedAozoraText = (
     }
 
     resetToBeginning(layoutMode);
+    lastStableParagraphIndexRef.current = 0;
     refreshStoryProgressSummaries();
 
     window.setTimeout(() => {
       isRestoringProgressRef.current = false;
+      isProgrammaticScrollRef.current = false;
+      isInitialProgressResolvedRef.current = true;
     }, 350);
   }, [
     readingUnits.length,
@@ -2031,40 +2104,61 @@ const openLoadedAozoraText = (
   }, []);
 
   useEffect(() => {
-    const handleLeave = async () => {
+    const handleLeave = () => {
+      isPageLeavingRef.current = true;
+
+      // 読み込み・復元途中の値を終了時に保存しない。
+      if (isRestoringProgressRef.current) return;
+      if (!isInitialProgressResolvedRef.current) return;
+      if (readingUnitsLengthRef.current <= 0) return;
+
       const scrollLeft = readingAreaRef.current?.scrollLeft ?? 0;
       const scrollTop = readingAreaRef.current?.scrollTop ?? 0;
-
-      writeReadingProgress(
-        selectedStoryRef.current,
-        layoutModeRef.current,
-        currentParagraphIndexRef.current,
-        readingUnitsLengthRef.current,
-        scrollLeft,
-        scrollTop,
+      const stableIndex = Math.max(
+        0,
+        Math.min(
+          lastStableParagraphIndexRef.current,
+          readingUnitsLengthRef.current - 1,
+        ),
       );
+
+      // localStorageはプリセット作品だけに使う。
+      if (currentWorkRef.current.type === "preset") {
+        writeReadingProgress(
+          selectedStoryRef.current,
+          layoutModeRef.current,
+          stableIndex,
+          readingUnitsLengthRef.current,
+          scrollLeft,
+          scrollTop,
+        );
+      }
 
       saveReadingProgressToFirestore(
-        currentParagraphIndexRef.current,
+        stableIndex,
         readingUnitsLengthRef.current,
         scrollLeft,
         scrollTop,
       );
+    };
 
-      if (!participantId) return;
-
-      try {
-        await deleteDoc(doc(db, "participants", participantId));
-      } catch (error) {
-        console.error("退出削除失敗", error);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        handleLeave();
+      } else {
+        isPageLeavingRef.current = false;
       }
     };
 
+    window.addEventListener("pagehide", handleLeave);
     window.addEventListener("beforeunload", handleLeave);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      handleLeave();
+      // React Strict Modeの検証用cleanupで読書位置を保存しない。
+      window.removeEventListener("pagehide", handleLeave);
       window.removeEventListener("beforeunload", handleLeave);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [participantId]);
 
@@ -2081,7 +2175,6 @@ const openLoadedAozoraText = (
 
     return () => unsubscribe();
   }, []);
-
 
   useEffect(() => {
     if (!authUser) {
@@ -2145,7 +2238,6 @@ const openLoadedAozoraText = (
           void deleteDoc(doc(db, "readingProgress", progress.docId));
           return;
         }
-
       });
 
       const data = Array.from(latestByWorkId.values())
@@ -2261,6 +2353,9 @@ const openLoadedAozoraText = (
 
   const updateActiveUnitByCenter = () => {
     if (isProgrammaticScrollRef.current) return;
+    if (isRestoringProgressRef.current) return;
+    if (!isInitialProgressResolvedRef.current) return;
+    if (isPageLeavingRef.current) return;
 
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current);
@@ -2304,6 +2399,7 @@ const openLoadedAozoraText = (
 
       setCurrentParagraphIndex(nearestIndex);
       currentParagraphIndexRef.current = nearestIndex;
+      lastStableParagraphIndexRef.current = nearestIndex;
       updateLocalParticipant(nearestIndex);
       saveReadingProgress(nearestIndex);
 
@@ -2331,6 +2427,7 @@ const openLoadedAozoraText = (
 
     setCurrentParagraphIndex(safeIndex);
     currentParagraphIndexRef.current = safeIndex;
+    lastStableParagraphIndexRef.current = safeIndex;
 
     updateLocalParticipant(safeIndex);
 
@@ -2343,9 +2440,12 @@ const openLoadedAozoraText = (
         scrollToFocus(safeIndex, mode);
         saveReadingProgress(safeIndex);
 
-        window.setTimeout(() => {
-          isProgrammaticScrollRef.current = false;
-        }, layoutModeRef.current === "horizontal" ? 300 : 120);
+        window.setTimeout(
+          () => {
+            isProgrammaticScrollRef.current = false;
+          },
+          layoutModeRef.current === "horizontal" ? 300 : 120,
+        );
       });
     });
 
@@ -2448,7 +2548,8 @@ const openLoadedAozoraText = (
 
       if (
         layoutMode === "horizontal" &&
-        readingArea.scrollTop + readingArea.clientHeight >= readingArea.scrollHeight - 2
+        readingArea.scrollTop + readingArea.clientHeight >=
+          readingArea.scrollHeight - 2
       ) {
         setIsAutoScroll(false);
         return;
@@ -2468,7 +2569,8 @@ const openLoadedAozoraText = (
     if (!authUser) return;
 
     const activeWork =
-      currentWorkRef.current ?? getFallbackCurrentWork(selectedStoryRef.current);
+      currentWorkRef.current ??
+      getFallbackCurrentWork(selectedStoryRef.current);
 
     await addDoc(collection(db, "reactions"), {
       storyKey: selectedStoryRef.current,
@@ -2770,94 +2872,110 @@ const openLoadedAozoraText = (
       className="min-h-screen bg-[#f5f1e8] px-4 py-6 outline-none"
     >
       <div className="mx-auto max-w-7xl">
-        <header className="mb-5 overflow-hidden rounded-[2rem] border border-[#ebe3d5] bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
-          <div className="grid gap-6 p-7 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
-            <div className="relative">
-              <div className="mb-6 rounded-[1.7rem] border border-[#eee3d2] bg-white p-4 shadow-sm">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold tracking-[0.28em] text-[#b98234]">
-                      READING HISTORY
-                    </p>
-                    <h2 className="mt-1 text-lg font-bold text-gray-900">
-                      最近読んだ作品
-                    </h2>
-                  </div>
-                  <span className="rounded-full bg-[#fffaf0] px-3 py-1 text-[0.68rem] font-bold text-[#b98234]">
-                    {userReadingProgresses.length}件
-                  </span>
-                </div>
-
-                {userReadingProgresses.length === 0 ? (
-                  <p className="rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold text-gray-400">
-                    まだ読書履歴はありません。作品を少し読み進めるとここに表示されます。
-                  </p>
-                ) : (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {userReadingProgresses.map((progress) => (
-                      <button
-                        key={progress.workId}
-                        type="button"
-                        onClick={() => handleOpenReadingProgress(progress)}
-                        className="rounded-2xl border border-gray-100 bg-[#fffaf0] p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                      >
-                        <div className="mb-2 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-black text-gray-950">
-                              {progress.title}
-                            </p>
-                            <p className="mt-1 truncate text-xs font-bold text-gray-500">
-                              {progress.author}
-                            </p>
-                          </div>
-                          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[0.65rem] font-black text-[#b98234]">
-                            {progress.workType === "url" ? "URL" : "登録済み"}
-                          </span>
-                        </div>
-
-                        <div className="mb-2 h-2 overflow-hidden rounded-full bg-white">
-                          <div
-                            className="h-full rounded-full bg-[#facc15]"
-                            style={{
-                              width: `${Math.max(0, Math.min(progress.percent, 100))}%`,
-                            }}
-                          />
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-gray-500">
-                          <span>{progress.percent}%</span>
-                          <span>
-                            p{progress.currentParagraphIndex} / {progress.readingUnitsLength}
-                          </span>
-                          <span>{formatUpdatedAt(progress.updatedAt)}</span>
-                        </div>
-
-                        <p className="mt-2 text-[0.65rem] font-black text-[#b98234]">
-                          {progress.workType === "url" ? "📚 青空文庫" : "📖 登録済み作品"}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                )}
+        <header className="mb-5 rounded-[1.75rem] border border-[#e9e1d5] bg-white px-5 py-5 shadow-[0_12px_32px_rgba(30,41,59,0.06)] sm:px-7">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <div className="mb-3 flex items-center gap-3">
+                <span className="h-7 w-1 rounded-full bg-[#c79a53]" />
+                <p className="text-[0.7rem] font-bold tracking-[0.32em] text-[#a86f24]">
+                  SHARED READING
+                </p>
               </div>
 
-              <div className="mb-6 rounded-[1.7rem] border border-[#eee3d2] bg-[#fffaf0] p-4 shadow-sm">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold tracking-[0.28em] text-[#b98234]">
-                      BOOK SOURCE
+              <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
+                <h1 className="font-serif text-3xl font-bold tracking-[-0.035em] text-gray-950 sm:text-4xl">
+                  {customTitle || stories[selectedStory].title}
+                </h1>
+                <p className="pb-1 text-sm font-semibold text-gray-500 sm:text-base">
+                  {customAuthor || stories[selectedStory].author}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
+              <span className="rounded-full bg-[#fff7e8] px-3 py-2 text-[#9a651f]">
+                👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}人参加
+              </span>
+              <span className="rounded-full bg-gray-100 px-3 py-2 text-gray-600">
+                {username || "利用者"}でログイン中
+              </span>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="rounded-full border border-gray-200 bg-white px-3 py-2 text-gray-500 transition hover:border-gray-300 hover:text-gray-900"
+              >
+                ログアウト
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 border-t border-gray-100 pt-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[0.65rem] font-bold tracking-[0.28em] text-[#a86f24]">
+                  READING HISTORY
+                </p>
+                <h2 className="mt-1 text-base font-bold text-gray-900">
+                  最近読んだ作品
+                </h2>
+              </div>
+              <span className="text-xs font-bold text-gray-400">
+                {userReadingProgresses.length}件
+              </span>
+            </div>
+
+            {userReadingProgresses.length === 0 ? (
+              <p className="rounded-xl bg-gray-50 px-4 py-3 text-sm font-bold text-gray-400">
+                まだ読書履歴はありません。
+              </p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {userReadingProgresses.slice(0, 4).map((progress) => (
+                  <button
+                    key={progress.workId}
+                    type="button"
+                    onClick={() => handleOpenReadingProgress(progress)}
+                    className="group min-w-0 rounded-2xl border border-[#eee7dc] bg-[#fffcf6] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#dcc7a7] hover:shadow-[0_8px_20px_rgba(30,41,59,0.07)]"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black text-gray-950">
+                          {progress.title}
+                        </p>
+                        <p className="mt-0.5 truncate text-[0.7rem] font-semibold text-gray-500">
+                          {progress.author}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[0.65rem] font-black text-[#a86f24]">
+                        {progress.percent}%
+                      </span>
+                    </div>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white">
+                      <div
+                        className="h-full rounded-full bg-[#e5ac45]"
+                        style={{
+                          width: `${Math.max(0, Math.min(progress.percent, 100))}%`,
+                        }}
+                      />
+                    </div>
+                    <p className="mt-2 text-[0.65rem] font-semibold text-gray-400">
+                      {formatUpdatedAt(progress.updatedAt)}
                     </p>
-                    <h2 className="mt-1 text-lg font-bold text-gray-900">
-                      本を開く
-                    </h2>
-                  </div>
+                  </button>
+                ))}
+              </div>
+            )}
 
-                  <span className="rounded-full bg-white px-3 py-1 text-[0.68rem] font-bold text-[#b98234] shadow-sm">
-                    GitHub Pages対応
-                  </span>
-                </div>
+            <details className="group mt-3 rounded-2xl border border-[#eee7dc] bg-[#fffaf0]">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-bold text-gray-700">
+                <span>＋ 別の作品を開く</span>
+                <span className="text-xs text-gray-400 transition group-open:rotate-180">
+                  ⌄
+                </span>
+              </summary>
 
-                <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-[#efe7da] p-1">
+              <div className="border-t border-[#eee7dc] p-4">
+                <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-[#eee6da] p-1">
                   {[
                     ["preset", "登録済み"],
                     ["url", "青空文庫URL"],
@@ -2869,10 +2987,10 @@ const openLoadedAozoraText = (
                         setLoadMode(mode as LoadMode);
                         setAozoraLoadError("");
                       }}
-                      className={`rounded-xl px-3 py-2 text-xs font-bold transition ${
+                      className={`rounded-lg px-3 py-2 text-xs font-bold transition ${
                         loadMode === mode
                           ? "bg-white text-gray-950 shadow-sm"
-                          : "text-gray-500 hover:text-gray-800"
+                          : "text-gray-500"
                       }`}
                     >
                       {label}
@@ -2881,97 +2999,59 @@ const openLoadedAozoraText = (
                 </div>
 
                 {loadMode === "preset" && (
-                  <div className="rounded-2xl bg-white p-4 shadow-sm">
-                    <p className="mb-2 text-sm font-bold text-gray-800">
-                      登録済み作品
-                    </p>
-
-                    <select
-                      value={selectedStory}
-                      onChange={(event) => {
-                        setIsAutoScroll(false);
-                        setReturnIndex(null);
-                        const nextStoryKey = event.target.value as StoryKey;
-                        const nextWork = createPresetWork(nextStoryKey);
-
-                        setSelectedStory(nextStoryKey);
-                        setCurrentWork(nextWork);
-                        currentWorkRef.current = nextWork;
-                        setSelectedWord("");
-                        setSearchWord("");
-                        setWikiMeaning("");
-                        setCustomTitle("");
-                        setCustomAuthor("");
-                        setAozoraUrl("");
-                        setAozoraLoadError("");
-                      }}
-                      className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold shadow-sm outline-none"
-                    >
-                      {Object.entries(stories).map(([key, story]) => {
-                        const storyKey = key as StoryKey;
-                        const progress = storyProgressSummaries[storyKey];
-                        const progressLabel = progress
-                          ? `（${progress.percent}%）`
-                          : "（未読）";
-
-                        return (
-                          <option key={key} value={key}>
-                            {story.title} {progressLabel}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
+                  <select
+                    value={selectedStory}
+                    onChange={(event) => {
+                      setSelectedStory(event.target.value as StoryKey);
+                      setSelectedWord("");
+                      setSearchWord("");
+                      setWikiMeaning("");
+                      setCustomTitle("");
+                      setCustomAuthor("");
+                      setAozoraUrl("");
+                      setAozoraLoadError("");
+                    }}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#c79a53]"
+                  >
+                    {Object.entries(stories).map(([key, story]) => {
+                      const storyKey = key as StoryKey;
+                      const progress = storyProgressSummaries[storyKey];
+                      return (
+                        <option key={key} value={key}>
+                          {story.title}{" "}
+                          {progress ? `（${progress.percent}%）` : "（未読）"}
+                        </option>
+                      );
+                    })}
+                  </select>
                 )}
 
-                
-
                 {loadMode === "url" && (
-                  <div className="rounded-2xl bg-white p-4 shadow-sm">
-                    <p className="mb-1 text-sm font-bold text-gray-800">
-                      青空文庫URLから開く
-                    </p>
-                    <p className="mb-3 text-xs leading-relaxed text-gray-400">
-                      青空文庫の図書カードURLかXHTML版URLを貼ると、この読書画面で開けます。
-                    </p>
-
-                    <div className="grid gap-2">
-                      <input
-                        type="url"
-                        value={aozoraUrl}
-                        onChange={(event) => {
-                          setAozoraUrl(event.target.value);
-                          setAozoraLoadError("");
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            handleLoadAozoraUrl();
-                          }
-                        }}
-                        placeholder="https://www.aozora.gr.jp/cards/..."
-                        className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={handleLoadAozoraUrl}
-                        disabled={isLoadingAozora}
-                        className="w-full rounded-2xl bg-gray-900 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
-                      >
-                        {isLoadingAozora ? "読み込み中" : "この本を読む"}
-                      </button>
-                    </div>
-
-                    <div className="mt-3 rounded-2xl bg-gray-50 px-3 py-3 text-xs leading-relaxed text-gray-500">
-                      <p className="font-bold text-gray-700">テスト用URL</p>
-                      <p className="mt-1 break-all">
-                        https://www.aozora.gr.jp/cards/000035/card1567.html
-                      </p>
-                      <p className="mt-2 text-gray-400">
-                        走れメロスなどの図書カードURLに対応しています。
-                      </p>
-                    </div>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <input
+                      type="url"
+                      value={aozoraUrl}
+                      onChange={(event) => {
+                        setAozoraUrl(event.target.value);
+                        setAozoraLoadError("");
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleLoadAozoraUrl();
+                        }
+                      }}
+                      placeholder="青空文庫の図書カードURL"
+                      className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleLoadAozoraUrl}
+                      disabled={isLoadingAozora}
+                      className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
+                    >
+                      {isLoadingAozora ? "読み込み中" : "この本を読む"}
+                    </button>
                   </div>
                 )}
 
@@ -2981,230 +3061,12 @@ const openLoadedAozoraText = (
                   </p>
                 )}
               </div>
-
-  <div className="mb-4 flex items-center gap-3">
-    <div className="h-10 w-1 rounded-full bg-[#c79a53]" />
-    <p className="text-xs font-bold tracking-[0.35em] text-[#b98234]">
-      SHARED READING
-    </p>
-  </div>
-
-              <h1 className="font-serif text-5xl font-bold tracking-[-0.04em] text-gray-950">
-                {customTitle || stories[selectedStory].title}
-              </h1>
-
-              <p className="mt-3 text-lg font-semibold text-gray-500">
-                {customAuthor || stories[selectedStory].author}
-              </p>
-
-              <div className="mt-6 inline-flex items-center gap-3 rounded-2xl border border-[#eee3d2] bg-[#fffaf0] px-5 py-3 text-sm font-bold text-gray-700">
-                <span className="text-[#b98234]">👥</span>
-                <span>
-                  参加中：
-                  <strong className="ml-1 text-lg text-[#b98234]">
-                    {admittedParticipants.length}/{MAX_PARTICIPANTS}
-                  </strong>
-                </span>
-              </div>
-
-              <div className="mt-3 inline-flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-5 py-3 text-sm font-bold text-gray-700 shadow-sm">
-                <span>ログイン中：{username || "利用者"}</span>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-500 hover:text-gray-900"
-                >
-                  ログアウト
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-[1.5rem] border border-gray-100 bg-gray-50/80 p-4">
-              <div className="grid gap-3">
-                <div className="rounded-2xl bg-white px-4 py-3 shadow-sm">
-                  <p className="text-xs font-bold tracking-[0.25em] text-[#b98234]">
-                    READING CONTROL
-                  </p>
-                  <h2 className="mt-1 text-base font-bold text-gray-900">
-                    読書操作
-                  </h2>
-                </div>
-                <div className="rounded-2xl bg-white px-4 py-3 text-xs font-bold text-gray-500 shadow-sm">
-                  {storyProgressSummaries[selectedStory] ? (
-                    <>
-                      前回の進捗：
-                      <span className="text-[#b98234]">
-                        {storyProgressSummaries[selectedStory]?.percent}%
-                      </span>
-                      <span className="ml-2 text-gray-400">
-                        {readingProgressNotice || "自動保存中"}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      未読{" "}
-                      <span className="ml-2 text-gray-400">自動保存中</span>
-                    </>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setReaderMode("reading")}
-                    className={`rounded-xl px-4 py-3 text-sm font-bold transition ${
-                      readerMode === "reading"
-                        ? "bg-white text-gray-950 shadow-sm"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    一人読み
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setReaderMode("shared")}
-                    className={`rounded-xl px-4 py-3 text-sm font-bold transition ${
-                      readerMode === "shared"
-                        ? "bg-white text-gray-950 shadow-sm"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    みんなと読む
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 rounded-2xl bg-gray-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      changeLayoutModeKeepingPosition("normal");
-                    }}
-                    className={`rounded-xl px-4 py-3 text-sm font-bold transition ${
-                      layoutMode === "normal"
-                        ? "bg-white text-gray-950 shadow-sm"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    通常段落
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      changeLayoutModeKeepingPosition("grouped");
-                    }}
-                    className={`rounded-xl px-4 py-3 text-sm font-bold transition ${
-                      layoutMode === "grouped"
-                        ? "bg-white text-gray-950 shadow-sm"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    2文グループ
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      changeLayoutModeKeepingPosition("horizontal");
-                    }}
-                    className={`rounded-xl px-4 py-3 text-sm font-bold transition ${
-                      layoutMode === "horizontal"
-                        ? "bg-white text-gray-950 shadow-sm"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    横書き
-                  </button>
-                </div>
-
-                <div className="rounded-2xl bg-white p-4 shadow-sm">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold text-gray-800">
-                        オート読書
-                      </p>
-                      <p className="mt-1 text-xs font-medium text-gray-500">
-                        0にすると停止します。
-                      </p>
-                    </div>
-
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-bold ${
-                        isAutoScroll
-                          ? "bg-yellow-300 text-gray-900"
-                          : "bg-gray-100 text-gray-500"
-                      }`}
-                    >
-                      {isAutoScroll ? `${autoSpeed}px/秒` : "停止中"}
-                    </span>
-                  </div>
-
-                  <input
-                    type="range"
-                    min="0"
-                    max="45"
-                    step="1"
-                    value={isAutoScroll ? autoSpeed : 0}
-                    onChange={(event) => {
-                      const nextSpeed = Number(event.target.value);
-
-                      if (nextSpeed <= 0) {
-                        setIsAutoScroll(false);
-                        return;
-                      }
-
-                      setAutoSpeed(nextSpeed);
-                      setIsAutoScroll(true);
-                    }}
-                    className="w-full accent-yellow-300"
-                    aria-label="オート読書速度"
-                  />
-
-                  <div className="mt-2 flex justify-between text-xs font-bold text-gray-400">
-                    <span>停止</span>
-                    <span>ゆっくり</span>
-                    <span>ふつう</span>
-                    <span>速い</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3 border-t border-gray-100 px-7 py-4 text-sm text-gray-500 sm:flex-row sm:items-center sm:justify-between">
-            <span>
-              ← 次へ ／ → 前へ ／ A = オート ／ S = 共有 ／ R = 一人読み ／ B = ここに戻る ／ V = 戻る
-            </span>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={handleMarkReturnPoint}
-                className="rounded-xl bg-gray-100 px-4 py-2 text-sm font-bold text-gray-700 shadow-sm transition hover:bg-gray-200"
-              >
-                ここに戻る
-              </button>
-
-              {returnIndex !== null && (
-                <button
-                  type="button"
-                  onClick={handleReturnToSavedIndex}
-                  className="rounded-xl bg-yellow-300 px-4 py-2 text-sm font-bold text-gray-800 shadow-sm transition hover:bg-yellow-200"
-                >
-                  元の位置へ戻る
-                </button>
-              )}
-            </div>
+            </details>
           </div>
         </header>
 
-        <div
-          className={`grid gap-6 ${
-            readerMode === "shared" ? "lg:grid-cols-[1fr_320px]" : "grid-cols-1"
-          }`}
-        >
-          <section className="overflow-hidden rounded-3xl bg-[#fffdf8] shadow-xl">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+          <section className="overflow-hidden rounded-[1.75rem] border border-[#e9e1d5] bg-[#fffdf8] shadow-[0_14px_34px_rgba(30,41,59,0.07)]">
             <div className="border-b border-gray-100 px-5 py-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -3232,7 +3094,7 @@ const openLoadedAozoraText = (
             <div
               ref={readingAreaRef}
               onScroll={updateActiveUnitByCenter}
-              className={`relative h-[75vh] px-16 py-12 ${
+              className={`relative h-[78vh] px-8 py-10 sm:px-12 lg:px-14 ${
                 layoutMode === "horizontal"
                   ? "overflow-y-auto overflow-x-hidden"
                   : "overflow-x-auto overflow-y-hidden"
@@ -3316,136 +3178,140 @@ const openLoadedAozoraText = (
                     textOrientation: "mixed",
                   }}
                 >
-                {paragraphs.map((paragraph, index) => {
-                  const paragraphUnits =
-                    readingUnitsByParagraph.get(index) ?? [];
+                  {paragraphs.map((paragraph, index) => {
+                    const paragraphUnits =
+                      readingUnitsByParagraph.get(index) ?? [];
 
-                  const isParagraphActive =
-                    currentReadingUnit?.paragraphIndex === index;
+                    const isParagraphActive =
+                      currentReadingUnit?.paragraphIndex === index;
 
-                  const readersInParagraph = admittedParticipants.filter(
-                    (participant) => {
-                      const readerUnit =
-                        readingUnits[participant.paragraphIndex];
-                      return readerUnit?.paragraphIndex === index;
-                    },
-                  );
+                    const readersInParagraph = admittedParticipants.filter(
+                      (participant) => {
+                        const readerUnit =
+                          readingUnits[participant.paragraphIndex];
+                        return readerUnit?.paragraphIndex === index;
+                      },
+                    );
 
-                  return (
-                    <div
-                      key={`${selectedStory}-${index}`}
-                      onClick={() => {
-                        const firstUnit = paragraphUnits[0];
-                        if (firstUnit) {
-                          handleParagraphClick(firstUnit.unitIndex);
-                        }
-                      }}
-                      className={`relative transition ${
-                        layoutMode === "normal"
-  ? `normal-reading-unit ml-8 py-4 ${
-      isParagraphActive ? "is-active" : ""
-    }`
-  : "grouped-paragraph-shell ml-8 py-4"
-                      }`}
-                    >
-                      {layoutMode === "normal" ? (
-                        <>
-                          <p
-                            ref={(element) => {
-                              const firstUnit = paragraphUnits[0];
-                              if (firstUnit) {
-                                paragraphRefs.current[firstUnit.unitIndex] =
-                                  element as HTMLDivElement | null;
-                              }
-                            }}
-                            className={`leading-[2.1] ${
-                              paragraph.isHeading ? "reading-heading-unit" : ""
-                            }`}
+                    return (
+                      <div
+                        key={`${selectedStory}-${index}`}
+                        onClick={() => {
+                          const firstUnit = paragraphUnits[0];
+                          if (firstUnit) {
+                            handleParagraphClick(firstUnit.unitIndex);
+                          }
+                        }}
+                        className={`relative transition ${
+                          layoutMode === "normal"
+                            ? `normal-reading-unit ml-8 py-4 ${
+                                isParagraphActive ? "is-active" : ""
+                              }`
+                            : "grouped-paragraph-shell ml-8 py-4"
+                        }`}
+                      >
+                        {layoutMode === "normal" ? (
+                          <>
+                            <p
+                              ref={(element) => {
+                                const firstUnit = paragraphUnits[0];
+                                if (firstUnit) {
+                                  paragraphRefs.current[firstUnit.unitIndex] =
+                                    element as HTMLDivElement | null;
+                                }
+                              }}
+                              className={`leading-[2.1] ${
+                                paragraph.isHeading
+                                  ? "reading-heading-unit"
+                                  : ""
+                              }`}
+                              {...wordSelectHandlers}
+                              dangerouslySetInnerHTML={{
+                                __html: decorateText(paragraph.text),
+                              }}
+                            />
+
+                            {readerMode === "shared" &&
+                              readersInParagraph.length > 0 && (
+                                <div className="reader-follow-badges marker-reader-badges normal-marker-reader-badges">
+                                  {readersInParagraph.map((reader) => (
+                                    <span
+                                      key={reader.id}
+                                      className={`reader-follow-badge ${
+                                        reader.id === participantId
+                                          ? "is-me"
+                                          : ""
+                                      }`}
+                                    >
+                                      {getDisplayName(reader.name)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                          </>
+                        ) : (
+                          <div
+                            className="two-sentence-layout"
                             {...wordSelectHandlers}
-                            dangerouslySetInnerHTML={{
-                              __html: decorateText(paragraph.text),
-                            }}
-                          />
+                          >
+                            {paragraphUnits.map((unit) => {
+                              const isUnitActive =
+                                currentParagraphIndex === unit.unitIndex;
 
-                          {readerMode === "shared" &&
-                            readersInParagraph.length > 0 && (
-                              <div className="reader-follow-badges marker-reader-badges normal-marker-reader-badges">
-                                {readersInParagraph.map((reader) => (
-                                  <span
-                                    key={reader.id}
-                                    className={`reader-follow-badge ${
-                                      reader.id === participantId ? "is-me" : ""
-                                    }`}
-                                  >
-                                    {getDisplayName(reader.name)}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                        </>
-                      ) : (
-                        <div
-                          className="two-sentence-layout"
-                          {...wordSelectHandlers}
-                        >
-                          {paragraphUnits.map((unit) => {
-                            const isUnitActive =
-                              currentParagraphIndex === unit.unitIndex;
+                              const readersHere = admittedParticipants.filter(
+                                (participant) =>
+                                  participant.paragraphIndex === unit.unitIndex,
+                              );
 
-                            const readersHere = admittedParticipants.filter(
-                              (participant) =>
-                                participant.paragraphIndex === unit.unitIndex,
-                            );
-
-                            return (
-                              <div
-                                key={unit.unitIndex}
-                                role="button"
-                                tabIndex={0}
-                                ref={(element) => {
-                                  paragraphRefs.current[unit.unitIndex] =
-                                    element;
-                                }}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleParagraphClick(unit.unitIndex);
-                                }}
-                                className={`reading-unit ${
-                                  unit.isHeading ? "reading-heading-unit" : ""
-                                } ${isUnitActive ? "is-active" : ""}`}
-                              >
-                                <span
-                                  className="reading-unit-inner"
-                                  dangerouslySetInnerHTML={{
-                                    __html: decorateText(unit.html),
+                              return (
+                                <div
+                                  key={unit.unitIndex}
+                                  role="button"
+                                  tabIndex={0}
+                                  ref={(element) => {
+                                    paragraphRefs.current[unit.unitIndex] =
+                                      element;
                                   }}
-                                />
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleParagraphClick(unit.unitIndex);
+                                  }}
+                                  className={`reading-unit ${
+                                    unit.isHeading ? "reading-heading-unit" : ""
+                                  } ${isUnitActive ? "is-active" : ""}`}
+                                >
+                                  <span
+                                    className="reading-unit-inner"
+                                    dangerouslySetInnerHTML={{
+                                      __html: decorateText(unit.html),
+                                    }}
+                                  />
 
-                                {readerMode === "shared" &&
-                                  readersHere.length > 0 && (
-                                    <div className="reader-follow-badges marker-reader-badges grouped-marker-reader-badges">
-                                      {readersHere.map((reader) => (
-                                        <span
-                                          key={reader.id}
-                                          className={`reader-follow-badge ${
-                                            reader.id === participantId
-                                              ? "is-me"
-                                              : ""
-                                          }`}
-                                        >
-                                          {getDisplayName(reader.name)}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                                  {readerMode === "shared" &&
+                                    readersHere.length > 0 && (
+                                      <div className="reader-follow-badges marker-reader-badges grouped-marker-reader-badges">
+                                        {readersHere.map((reader) => (
+                                          <span
+                                            key={reader.id}
+                                            className={`reader-follow-badge ${
+                                              reader.id === participantId
+                                                ? "is-me"
+                                                : ""
+                                            }`}
+                                          >
+                                            {getDisplayName(reader.name)}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -3518,8 +3384,164 @@ const openLoadedAozoraText = (
             </div>
           </section>
 
-          <aside className="sticky top-4 h-[calc(100vh-2rem)] overflow-y-auto space-y-5">
-            <div className="rounded-3xl bg-white p-5 shadow-lg">
+          <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
+            <div className="rounded-[1.5rem] border border-[#e9e1d5] bg-white p-4 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[0.65rem] font-bold tracking-[0.25em] text-[#a86f24]">
+                    READING CONTROL
+                  </p>
+                  <h2 className="mt-1 text-base font-bold text-gray-900">
+                    読書操作
+                  </h2>
+                </div>
+                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[0.65rem] font-bold text-gray-500">
+                  {readingProgressNotice || "自動保存"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setReaderMode("reading")}
+                  className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "reading" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                >
+                  一人読み
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReaderMode("shared")}
+                  className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "shared" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                >
+                  みんなと読む
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => changeLayoutModeKeepingPosition("normal")}
+                  className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "normal" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                >
+                  通常段落
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeLayoutModeKeepingPosition("grouped")}
+                  className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "grouped" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                >
+                  2文
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeLayoutModeKeepingPosition("horizontal")}
+                  className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "horizontal" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                >
+                  横書き
+                </button>
+              </div>
+
+              <details className="group mt-3 rounded-xl border border-gray-100 bg-[#fffcf6]">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-xs font-bold text-gray-700">
+                  <span>オート読書</span>
+                  <span
+                    className={
+                      isAutoScroll ? "text-[#a86f24]" : "text-gray-400"
+                    }
+                  >
+                    {isAutoScroll ? `${autoSpeed}px/秒` : "停止中"}
+                  </span>
+                </summary>
+                <div className="border-t border-gray-100 px-3 pb-3 pt-3">
+                  <input
+                    type="range"
+                    min="0"
+                    max="45"
+                    step="1"
+                    value={isAutoScroll ? autoSpeed : 0}
+                    onChange={(event) => {
+                      const nextSpeed = Number(event.target.value);
+                      if (nextSpeed <= 0) {
+                        setIsAutoScroll(false);
+                        return;
+                      }
+                      setAutoSpeed(nextSpeed);
+                      setIsAutoScroll(true);
+                    }}
+                    className="w-full accent-[#d8a348]"
+                    aria-label="オート読書速度"
+                  />
+                  <div className="mt-1 flex justify-between text-[0.62rem] font-bold text-gray-400">
+                    <span>停止</span>
+                    <span>ゆっくり</span>
+                    <span>速い</span>
+                  </div>
+                </div>
+              </details>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleMarkReturnPoint}
+                  className="rounded-xl bg-gray-100 px-3 py-2.5 text-xs font-bold text-gray-700 transition hover:bg-gray-200"
+                >
+                  ここに戻る
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReturnToSavedIndex}
+                  disabled={returnIndex === null}
+                  className="rounded-xl bg-[#f3cf7a] px-3 py-2.5 text-xs font-bold text-gray-800 transition disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  元の位置へ
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-[#eadfce] bg-[#fffaf0] p-4 shadow-[0_10px_28px_rgba(30,41,59,0.05)]">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="text-xl" aria-hidden="true">
+                  ⌨️
+                </span>
+                <div>
+                  <p className="text-[0.62rem] font-bold tracking-[0.22em] text-[#a86f24]">
+                    KEYBOARD
+                  </p>
+                  <h2 className="text-sm font-bold text-gray-900">
+                    キーボード操作
+                  </h2>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[0.72rem] text-gray-600">
+                <div className="flex items-center gap-2">
+                  <kbd className="min-w-12 rounded-lg border border-[#dfd3c2] bg-white px-2 py-1 text-center font-bold text-gray-800 shadow-sm">
+                    ← →
+                  </kbd>
+                  <span>前後へ移動</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <kbd className="min-w-12 rounded-lg border border-[#dfd3c2] bg-white px-2 py-1 text-center font-bold text-gray-800 shadow-sm">
+                    A
+                  </kbd>
+                  <span>オート切替</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <kbd className="min-w-12 rounded-lg border border-[#dfd3c2] bg-white px-2 py-1 text-center font-bold text-gray-800 shadow-sm">
+                    R / S
+                  </kbd>
+                  <span>一人・共有</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <kbd className="min-w-12 rounded-lg border border-[#dfd3c2] bg-white px-2 py-1 text-center font-bold text-gray-800 shadow-sm">
+                    B / V
+                  </kbd>
+                  <span>位置保存・復帰</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-[#e9e1d5] bg-white p-5 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
               <h2 className="mb-3 text-lg font-bold">用語検索</h2>
 
               <input
