@@ -1816,19 +1816,28 @@ export default function Home() {
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        scrollToFocus(safeIndex, targetLayoutMode);
+        lockViewportToProgress(safeIndex, targetLayoutMode);
+
+        const restoreDelays = [80, 240, 500, 900];
+        restoreDelays.forEach((delay) => {
+          window.setTimeout(() => {
+            lockViewportToProgress(safeIndex, targetLayoutMode);
+          }, delay);
+        });
+
+        if ("fonts" in document) {
+          void document.fonts.ready.then(() => {
+            lockViewportToProgress(safeIndex, targetLayoutMode);
+          });
+        }
 
         window.setTimeout(() => {
-          // 画面幅や本文長に依存する古いscrollLeft / scrollTopは使わない。
-          // 読書単位番号を基準にscrollToFocusで復元する。
           refreshStoryProgressSummaries();
-
-          window.setTimeout(() => {
-            isRestoringProgressRef.current = false;
-            isProgrammaticScrollRef.current = false;
-            isInitialProgressResolvedRef.current = true;
-          }, 350);
-        }, 120);
+          lastStableParagraphIndexRef.current = safeIndex;
+          isRestoringProgressRef.current = false;
+          isProgrammaticScrollRef.current = false;
+          isInitialProgressResolvedRef.current = true;
+        }, 1100);
       });
     });
   };
@@ -2315,40 +2324,70 @@ export default function Home() {
     return areaRect.top + areaRect.height * 0.42;
   };
 
-  const scrollToFocus = (index: number, mode: LayoutMode = layoutMode) => {
-    const targetElement = paragraphRefs.current[index];
+  // リロード復元時に、保存された読書単位を確実に画面内へ戻す。
+  // flex-direction: row-reverse の横スクロールでは scrollLeft の正負が
+  // ブラウザごとに異なるため、絶対座標を計算せずDOM要素を直接表示する。
+  const lockViewportToProgress = (
+    index: number,
+    mode: LayoutMode = layoutModeRef.current,
+  ) => {
     const readingArea = readingAreaRef.current;
+    if (!readingArea || readingUnits.length <= 0) return false;
 
-    if (!targetElement || !readingArea) return;
+    const safeIndex = Math.max(0, Math.min(index, readingUnits.length - 1));
+    const targetUnit = readingUnits[safeIndex];
 
-    const targetRect = targetElement.getBoundingClientRect();
-    const areaRect = readingArea.getBoundingClientRect();
+    let targetElement = paragraphRefs.current[safeIndex];
 
-    if (mode === "horizontal") {
-      const targetTop =
-        targetElement.offsetTop - readingArea.clientHeight * 0.22;
+    // 通常段落・横書きでは複数の読書単位が同じDOM段落を共有する。
+    // 念のため、同じ段落に属する別の読書単位のrefも探す。
+    if (!targetElement && targetUnit) {
+      const unitsInSameParagraph =
+        readingUnitsByParagraph.get(targetUnit.paragraphIndex) ?? [];
 
-      readingArea.scrollTo({
-        top: Math.max(0, targetTop),
-        left: 0,
-        behavior: "auto",
-      });
-
-      return;
+      for (const unit of unitsInSameParagraph) {
+        const candidate = paragraphRefs.current[unit.unitIndex];
+        if (candidate) {
+          targetElement = candidate;
+          break;
+        }
+      }
     }
 
-    const targetPoint =
-      mode === "normal"
-        ? targetRect.right
-        : targetRect.left + targetRect.width / 2;
+    if (!targetElement) return false;
 
-    const focusX = getFocusX(mode, areaRect);
-    const diff = targetPoint - focusX;
+    isProgrammaticScrollRef.current = true;
 
-    readingArea.scrollTo({
-      left: readingArea.scrollLeft + diff,
+    targetElement.scrollIntoView({
       behavior: "auto",
+      block: mode === "horizontal" ? "center" : "nearest",
+      inline: mode === "horizontal" ? "nearest" : "center",
     });
+
+    requestAnimationFrame(() => {
+      const areaRect = readingArea.getBoundingClientRect();
+      const targetRect = targetElement.getBoundingClientRect();
+
+      if (mode === "horizontal") {
+        const diff =
+          targetRect.top + targetRect.height / 2 - getFocusY(areaRect);
+        readingArea.scrollBy({ top: diff, left: 0, behavior: "auto" });
+      } else {
+        const targetPoint =
+          mode === "normal"
+            ? targetRect.right
+            : targetRect.left + targetRect.width / 2;
+        const diff = targetPoint - getFocusX(mode, areaRect);
+
+        readingArea.scrollBy({ left: diff, top: 0, behavior: "auto" });
+      }
+    });
+
+    return true;
+  };
+
+  const scrollToFocus = (index: number, mode: LayoutMode = layoutMode) => {
+    lockViewportToProgress(index, mode);
   };
 
   const updateActiveUnitByCenter = () => {
@@ -3121,11 +3160,10 @@ export default function Home() {
                       <div
                         key={`${selectedStory}-horizontal-${index}`}
                         ref={(element) => {
-                          const firstUnit = paragraphUnits[0];
-                          if (firstUnit) {
-                            paragraphRefs.current[firstUnit.unitIndex] =
+                          paragraphUnits.forEach((unit) => {
+                            paragraphRefs.current[unit.unitIndex] =
                               element as HTMLDivElement | null;
-                          }
+                          });
                         }}
                         onClick={(event) => {
                           wordSelectHandlers.onClick(event);
@@ -3214,11 +3252,10 @@ export default function Home() {
                           <>
                             <p
                               ref={(element) => {
-                                const firstUnit = paragraphUnits[0];
-                                if (firstUnit) {
-                                  paragraphRefs.current[firstUnit.unitIndex] =
+                                paragraphUnits.forEach((unit) => {
+                                  paragraphRefs.current[unit.unitIndex] =
                                     element as HTMLDivElement | null;
-                                }
+                                });
                               }}
                               className={`leading-[2.1] ${
                                 paragraph.isHeading
