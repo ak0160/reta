@@ -118,8 +118,17 @@ type StoryProgressSummary = {
 };
 
 type LastReadingState = {
-  storyKey: StoryKey;
+  workType: WorkType;
+  workId: string;
+  storyKey: StoryKey | "";
+  sourceUrl: string;
+  title: string;
+  author: string;
   layoutMode: LayoutMode;
+  currentParagraphIndex: number;
+  readingUnitsLength: number;
+  scrollLeft: number;
+  scrollTop: number;
   savedAt: number;
 };
 
@@ -214,10 +223,29 @@ function getDisplayPercent(index: number, count: number) {
   return Math.min(99, Math.round((index / (count - 1)) * 100));
 }
 
-function saveLastReadingState(storyKey: StoryKey, layoutMode: LayoutMode) {
+function saveLastReadingState(
+  work: CurrentWork,
+  storyKey: StoryKey | "",
+  layoutMode: LayoutMode,
+  currentParagraphIndex: number,
+  readingUnitsLength: number,
+  scrollLeft: number,
+  scrollTop: number,
+) {
+  if (typeof window === "undefined") return;
+
   const state: LastReadingState = {
+    workType: work.type,
+    workId: work.workId,
     storyKey,
+    sourceUrl: work.sourceUrl,
+    title: work.title,
+    author: work.author,
     layoutMode,
+    currentParagraphIndex,
+    readingUnitsLength,
+    scrollLeft,
+    scrollTop,
     savedAt: Date.now(),
   };
 
@@ -233,7 +261,23 @@ function loadLastReadingState() {
   try {
     const state = JSON.parse(rawState) as LastReadingState;
 
-    if (!isStoryKey(state.storyKey)) return null;
+    if (state.workType !== "preset" && state.workType !== "url") return null;
+    if (typeof state.workId !== "string" || !state.workId) return null;
+    if (typeof state.sourceUrl !== "string") return null;
+    if (typeof state.title !== "string") return null;
+    if (typeof state.author !== "string") return null;
+    if (
+      state.workType === "preset" &&
+      !isStoryKey(state.storyKey)
+    ) {
+      return null;
+    }
+    if (
+      state.workType === "url" &&
+      state.storyKey !== ""
+    ) {
+      return null;
+    }
     if (
       state.layoutMode !== "normal" &&
       state.layoutMode !== "grouped" &&
@@ -241,6 +285,11 @@ function loadLastReadingState() {
     ) {
       return null;
     }
+
+    state.currentParagraphIndex = Number(state.currentParagraphIndex ?? 0);
+    state.readingUnitsLength = Number(state.readingUnitsLength ?? 0);
+    state.scrollLeft = Number(state.scrollLeft ?? 0);
+    state.scrollTop = Number(state.scrollTop ?? 0);
 
     return state;
   } catch (error) {
@@ -280,7 +329,6 @@ function writeReadingProgress(
     JSON.stringify(progress),
   );
 
-  saveLastReadingState(storyKey, layoutMode);
 }
 
 function loadReadingProgressFromStorage(
@@ -1196,6 +1244,9 @@ export default function Home() {
   const readingAreaRef = useRef<HTMLDivElement | null>(null);
   const isProgrammaticScrollRef = useRef(false);
   const scrollFrameRef = useRef<number | null>(null);
+  // Safariはリロード後に遅れてscrollイベントを発生させることがある。
+  // この時刻までは中央判定・自動保存を完全に停止し、保存位置を固定する。
+  const restoreGuardUntilRef = useRef(0);
   // リロード直後はブラウザの自動スクロール復元やDOM再配置による
   // scrollイベントを読書操作として扱わない。
   const isInitialProgressResolvedRef = useRef(false);
@@ -1447,6 +1498,7 @@ export default function Home() {
   const openLoadedAozoraText = (
     loadedText: LoadedAozoraText,
     preferredSourceUrl = loadedText.sourceUrl,
+    preservePendingRestore = false,
   ) => {
     const canonicalSourceUrl = getCanonicalSourceUrl(preferredSourceUrl);
 
@@ -1460,6 +1512,7 @@ export default function Home() {
 
     setCurrentWork(urlWork);
     currentWorkRef.current = urlWork;
+
 
     void setDoc(
       doc(db, "works", urlWork.workId),
@@ -1489,9 +1542,17 @@ export default function Home() {
     setIsAutoScroll(false);
     setReturnIndex(null);
 
+    paragraphRefs.current = [];
+
+    // 履歴・リロードからの復元時は、ここで0番へ戻したり、
+    // 300ms後に復元フラグを解除しない。
+    // restoreReadingProgress側が保存位置への移動と復元終了を管理する。
+    if (preservePendingRestore) {
+      return;
+    }
+
     setCurrentParagraphIndex(0);
     currentParagraphIndexRef.current = 0;
-    paragraphRefs.current = [];
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -1562,6 +1623,15 @@ export default function Home() {
 
       openLoadedAozoraText(loadedText, canonicalSourceUrl);
       setAozoraUrl(canonicalSourceUrl);
+      saveLastReadingState(
+        currentWorkRef.current,
+        "",
+        layoutModeRef.current,
+        0,
+        0,
+        0,
+        0,
+      );
       rememberRecentAozoraBook({
         ...book,
         id: createUrlWorkId(canonicalSourceUrl),
@@ -1605,6 +1675,15 @@ export default function Home() {
 
       openLoadedAozoraText(loadedText, canonicalSourceUrl);
       setAozoraUrl(canonicalSourceUrl);
+      saveLastReadingState(
+        currentWorkRef.current,
+        "",
+        layoutModeRef.current,
+        0,
+        0,
+        0,
+        0,
+      );
 
       const recentBook: AozoraSearchBook = {
         id: createUrlWorkId(canonicalSourceUrl),
@@ -1665,7 +1744,7 @@ export default function Home() {
         const canonicalSourceUrl = getCanonicalSourceUrl(progress.sourceUrl);
         const loadedText = await loadAozoraTextFromUrl(canonicalSourceUrl);
         setAozoraUrl(canonicalSourceUrl);
-        openLoadedAozoraText(loadedText, canonicalSourceUrl);
+        openLoadedAozoraText(loadedText, canonicalSourceUrl, true);
       } catch (error) {
         console.error(error);
         setAozoraLoadError("履歴から作品を開けませんでした");
@@ -1734,6 +1813,7 @@ export default function Home() {
   const saveReadingProgress = (
     nextIndex = currentParagraphIndexRef.current,
   ) => {
+    if (Date.now() < restoreGuardUntilRef.current) return;
     if (isRestoringProgressRef.current) return;
     if (!isInitialProgressResolvedRef.current) return;
     if (isPageLeavingRef.current) return;
@@ -1741,6 +1821,18 @@ export default function Home() {
 
     const scrollLeft = readingAreaRef.current?.scrollLeft ?? 0;
     const scrollTop = readingAreaRef.current?.scrollTop ?? 0;
+
+    const activeWork = currentWorkRef.current;
+
+    saveLastReadingState(
+      activeWork,
+      activeWork.type === "preset" ? selectedStoryRef.current : "",
+      layoutModeRef.current,
+      nextIndex,
+      readingUnits.length,
+      scrollLeft,
+      scrollTop,
+    );
 
     // localStorageの保存キーはプリセット作品用なので、URL作品の位置を
     // 選択中プリセット作品へ誤保存しない。
@@ -1772,13 +1864,9 @@ export default function Home() {
   ) => {
     if (readingUnits.length <= 0) return;
 
-    isRestoringProgressRef.current = true;
-
     const savedLength = Math.max(1, Number(progress.readingUnitsLength || 1));
     const currentLength = Math.max(1, readingUnits.length);
 
-    // 本文の整形結果や区切り数が変わった場合、古いindexを末尾へ丸めず、
-    // 保存時の進捗割合から現在の読書単位へ変換する。
     const savedRatio =
       savedLength <= 1
         ? 0
@@ -1798,46 +1886,78 @@ export default function Home() {
       ),
     );
 
+    // Safariの遅延scrollイベントを含め、復元中の位置再判定を止める。
+    const guardDuration = 3600;
+    restoreGuardUntilRef.current = Date.now() + guardDuration;
+    isRestoringProgressRef.current = true;
+    isProgrammaticScrollRef.current = true;
+    isInitialProgressResolvedRef.current = false;
+
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+
     setCurrentParagraphIndex(safeIndex);
     currentParagraphIndexRef.current = safeIndex;
     lastStableParagraphIndexRef.current = safeIndex;
     updateLocalParticipant(safeIndex);
 
-    // 本文位置だけでなく、作品一覧の％表示も復元直後に更新する。
-    // 横書きモードでは scrollTop、縦書きモードでは scrollLeft を使う。
-    writeReadingProgress(
-      selectedStoryRef.current,
-      targetLayoutMode,
-      safeIndex,
-      readingUnits.length,
-      progress.scrollLeft,
-    );
-    refreshStoryProgressSummaries();
+    // 登録済み作品だけ、作品別のlocalStorageにも同じ正確な位置を保存する。
+    if (currentWorkRef.current.type === "preset") {
+      writeReadingProgress(
+        selectedStoryRef.current,
+        targetLayoutMode,
+        safeIndex,
+        readingUnits.length,
+        progress.scrollLeft,
+        progress.scrollTop ?? 0,
+      );
+    }
+
+    const lockSavedPosition = () => {
+      setCurrentParagraphIndex(safeIndex);
+      currentParagraphIndexRef.current = safeIndex;
+      lastStableParagraphIndexRef.current = safeIndex;
+      lockViewportToProgress(safeIndex, targetLayoutMode);
+    };
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        lockViewportToProgress(safeIndex, targetLayoutMode);
+        lockSavedPosition();
 
-        const restoreDelays = [80, 240, 500, 900];
-        restoreDelays.forEach((delay) => {
-          window.setTimeout(() => {
-            lockViewportToProgress(safeIndex, targetLayoutMode);
-          }, delay);
+        // Safariではフォント・縦書き・row-reverseの再配置が遅れるため、
+        // 数回同じ位置へ固定して、途中のscrollイベントは読み捨てる。
+        [100, 300, 700, 1200, 2000, 3000].forEach((delay) => {
+          window.setTimeout(lockSavedPosition, delay);
         });
 
         if ("fonts" in document) {
           void document.fonts.ready.then(() => {
-            lockViewportToProgress(safeIndex, targetLayoutMode);
+            lockSavedPosition();
           });
         }
 
         window.setTimeout(() => {
+          lockSavedPosition();
+
+          const activeWork = currentWorkRef.current;
+          saveLastReadingState(
+            activeWork,
+            activeWork.type === "preset" ? selectedStoryRef.current : "",
+            targetLayoutMode,
+            safeIndex,
+            readingUnits.length,
+            readingAreaRef.current?.scrollLeft ?? 0,
+            readingAreaRef.current?.scrollTop ?? 0,
+          );
+
           refreshStoryProgressSummaries();
-          lastStableParagraphIndexRef.current = safeIndex;
+          restoreGuardUntilRef.current = 0;
           isRestoringProgressRef.current = false;
           isProgrammaticScrollRef.current = false;
           isInitialProgressResolvedRef.current = true;
-        }, 1100);
+        }, guardDuration);
       });
     });
   };
@@ -1882,8 +2002,98 @@ export default function Home() {
     const lastState = loadLastReadingState();
 
     if (lastState) {
-      setSelectedStory(lastState.storyKey);
       setLayoutMode(lastState.layoutMode);
+      layoutModeRef.current = lastState.layoutMode;
+
+      if (
+        lastState.workType === "preset" &&
+        isStoryKey(lastState.storyKey)
+      ) {
+        setLoadMode("preset");
+        setSelectedStory(lastState.storyKey);
+        selectedStoryRef.current = lastState.storyKey;
+        isRestoringProgressRef.current = true;
+        isInitialProgressResolvedRef.current = false;
+
+        pendingResumeProgressRef.current = {
+          userId: auth.currentUser?.uid ?? "",
+          username: usernameRef.current || "名前なし",
+          workId: lastState.workId,
+          workType: "preset",
+          title: lastState.title,
+          author: lastState.author,
+          sourceUrl: lastState.sourceUrl,
+          storyKey: lastState.storyKey,
+          layoutMode: lastState.layoutMode,
+          currentParagraphIndex: lastState.currentParagraphIndex,
+          readingUnitsLength: lastState.readingUnitsLength,
+          percent: getDisplayPercent(
+            lastState.currentParagraphIndex,
+            Math.max(1, lastState.readingUnitsLength),
+          ),
+          scrollLeft: lastState.scrollLeft,
+          scrollTop: lastState.scrollTop,
+          updatedAt: lastState.savedAt,
+        };
+      }
+
+      if (lastState.workType === "url" && lastState.sourceUrl) {
+        setLoadMode("url");
+        setAozoraUrl(lastState.sourceUrl);
+        isRestoringProgressRef.current = true;
+        isInitialProgressResolvedRef.current = false;
+
+        pendingResumeProgressRef.current = {
+          userId: auth.currentUser?.uid ?? "",
+          username: usernameRef.current || "名前なし",
+          workId: lastState.workId,
+          workType: "url",
+          title: lastState.title,
+          author: lastState.author,
+          sourceUrl: lastState.sourceUrl,
+          storyKey: "",
+          layoutMode: lastState.layoutMode,
+          currentParagraphIndex: lastState.currentParagraphIndex,
+          readingUnitsLength: lastState.readingUnitsLength,
+          percent: getDisplayPercent(
+            lastState.currentParagraphIndex,
+            Math.max(1, lastState.readingUnitsLength),
+          ),
+          scrollLeft: lastState.scrollLeft,
+          scrollTop: lastState.scrollTop,
+          updatedAt: lastState.savedAt,
+        };
+
+        void (async () => {
+          try {
+            const loadedText = await loadAozoraTextFromUrl(
+              lastState.sourceUrl,
+            );
+
+            const urlWork: CurrentWork = {
+              workId: lastState.workId,
+              type: "url",
+              title: lastState.title,
+              author: lastState.author,
+              sourceUrl: lastState.sourceUrl,
+            };
+
+            setCurrentWork(urlWork);
+            currentWorkRef.current = urlWork;
+
+            openLoadedAozoraText(
+              loadedText,
+              lastState.sourceUrl,
+              true,
+            );
+          } catch (error) {
+            console.error("前回のURL作品の復元に失敗", error);
+            setAozoraLoadError("前回開いていたURL作品を復元できませんでした");
+            isRestoringProgressRef.current = false;
+            isInitialProgressResolvedRef.current = true;
+          }
+        })();
+      }
     }
 
     setRecentAozoraBooks(loadRecentAozoraBooksFromStorage());
@@ -1923,6 +2133,8 @@ export default function Home() {
   }, [readingUnits.length]);
 
   useEffect(() => {
+    if (loadMode === "url") return;
+
     const story = stories[selectedStory];
     const presetWork = createPresetWork(selectedStory);
     setCurrentWork(presetWork);
@@ -1980,7 +2192,7 @@ export default function Home() {
     };
 
     loadText();
-  }, [selectedStory]);
+  }, [selectedStory, loadMode]);
 
   useEffect(() => {
     if (readingUnits.length === 0) return;
@@ -2117,6 +2329,7 @@ export default function Home() {
       isPageLeavingRef.current = true;
 
       // 読み込み・復元途中の値を終了時に保存しない。
+      if (Date.now() < restoreGuardUntilRef.current) return;
       if (isRestoringProgressRef.current) return;
       if (!isInitialProgressResolvedRef.current) return;
       if (readingUnitsLengthRef.current <= 0) return;
@@ -2391,6 +2604,7 @@ export default function Home() {
   };
 
   const updateActiveUnitByCenter = () => {
+    if (Date.now() < restoreGuardUntilRef.current) return;
     if (isProgrammaticScrollRef.current) return;
     if (isRestoringProgressRef.current) return;
     if (!isInitialProgressResolvedRef.current) return;
@@ -2401,9 +2615,21 @@ export default function Home() {
     }
 
     scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+
+      // requestAnimationFrameを予約した後に、URL作品の復元や
+      // プログラムによるスクロールが始まる可能性があるため、
+      // 実行直前にも状態を確認する。
+      if (Date.now() < restoreGuardUntilRef.current) return;
+      if (isProgrammaticScrollRef.current) return;
+      if (isRestoringProgressRef.current) return;
+      if (!isInitialProgressResolvedRef.current) return;
+      if (isPageLeavingRef.current) return;
+
       const readingArea = readingAreaRef.current;
       if (!readingArea) return;
 
+      const activeLayoutMode = layoutModeRef.current;
       const areaRect = readingArea.getBoundingClientRect();
 
       let nearestIndex = currentParagraphIndexRef.current;
@@ -2415,16 +2641,16 @@ export default function Home() {
         const rect = element.getBoundingClientRect();
 
         const targetPoint =
-          layoutMode === "horizontal"
+          activeLayoutMode === "horizontal"
             ? rect.top
-            : layoutMode === "normal"
+            : activeLayoutMode === "normal"
               ? rect.right
               : rect.left + rect.width / 2;
 
         const focusPoint =
-          layoutMode === "horizontal"
+          activeLayoutMode === "horizontal"
             ? getFocusY(areaRect)
-            : getFocusX(layoutMode, areaRect);
+            : getFocusX(activeLayoutMode, areaRect);
 
         const distance = Math.abs(targetPoint - focusPoint);
 
@@ -2435,6 +2661,14 @@ export default function Home() {
       });
 
       if (nearestIndex === currentParagraphIndexRef.current) return;
+
+      // DOM位置の判定中に復元処理が始まった場合は、誤った段落を
+      // 現在位置として保存しないよう、更新直前にも再確認する。
+      if (Date.now() < restoreGuardUntilRef.current) return;
+      if (isProgrammaticScrollRef.current) return;
+      if (isRestoringProgressRef.current) return;
+      if (!isInitialProgressResolvedRef.current) return;
+      if (isPageLeavingRef.current) return;
 
       setCurrentParagraphIndex(nearestIndex);
       currentParagraphIndexRef.current = nearestIndex;
