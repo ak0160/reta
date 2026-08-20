@@ -1,6 +1,6 @@
 const BASE_PATH =
   process.env.NODE_ENV === "production"
-    ? "/shared-reading-app"
+    ? "/reta"
     : "";
 
 export type StoryKey =
