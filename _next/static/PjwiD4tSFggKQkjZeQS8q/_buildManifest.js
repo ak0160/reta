@@ -3,8 +3,8 @@ self.__BUILD_MANIFEST = {
     "afterFiles": [],
     "beforeFiles": [
       {
-        "source": "/shared-reading-app//_next/:path+",
-        "destination": "/shared-reading-app/_next/:path+"
+        "source": "/reta//_next/:path+",
+        "destination": "/reta/_next/:path+"
       }
     ],
     "fallback": []
