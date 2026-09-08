@@ -445,6 +445,8 @@ function normalizeParticipant(
   return {
     id,
     name: typeof raw.name === "string" ? raw.name : "",
+    workId: typeof raw.workId === "string" ? raw.workId : "",
+    isReading: raw.isReading === true,
     paragraphIndex: Number(raw.paragraphIndex ?? 0),
     joinedAt: Number(raw.joinedAt ?? now),
     updatedAt: Number(raw.updatedAt ?? 0),
@@ -1286,16 +1288,36 @@ export default function Home() {
     const now = Date.now();
 
     return participants.filter((participant) => {
+      const isSelf = participant.id === participantId;
+
+      if (isSelf) {
+        return participant.name.trim() !== "";
+      }
+
       return (
         now - participant.updatedAt < ACTIVE_LIMIT_MS &&
-        participant.name.trim() !== ""
+        participant.name.trim() !== "" &&
+        participant.workId === currentWork.workId &&
+        participant.isReading
       );
     });
-  }, [participants]);
+  }, [participants, participantId, currentWork.workId]);
 
   const admittedParticipants = useMemo(() => {
-    return activeParticipants.slice(0, MAX_PARTICIPANTS);
-  }, [activeParticipants]);
+    const self = activeParticipants.find(
+      (participant) => participant.id === participantId,
+    );
+
+    const others = activeParticipants.filter(
+      (participant) => participant.id !== participantId,
+    );
+
+    if (!self) {
+      return others.slice(0, MAX_PARTICIPANTS);
+    }
+
+    return [self, ...others].slice(0, MAX_PARTICIPANTS);
+  }, [activeParticipants, participantId]);
 
   const isAdmitted = useMemo(() => {
     return admittedParticipants.some(
@@ -2112,6 +2134,27 @@ export default function Home() {
     currentParagraphIndexRef.current = currentParagraphIndex;
   }, [currentParagraphIndex]);
 
+  // 現在開いている作品を参加者情報へ即時反映する。
+  // 同じ作品を読んでいる参加者だけをリアルタイム表示するために使用する。
+  useEffect(() => {
+    if (!participantId || !joinedAt) return;
+    if (document.visibilityState !== "visible") return;
+
+    void setDoc(
+      doc(db, "participants", participantId),
+      {
+        name: usernameRef.current || "名前なし",
+        userId: authUser?.uid ?? participantId,
+        workId: currentWork.workId,
+        isReading: true,
+        paragraphIndex: currentParagraphIndexRef.current,
+        joinedAt,
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
+  }, [participantId, joinedAt, authUser?.uid, currentWork.workId]);
+
   useEffect(() => {
     usernameRef.current = username;
   }, [username]);
@@ -2140,14 +2183,18 @@ export default function Home() {
     setCurrentWork(presetWork);
     currentWorkRef.current = presetWork;
 
-    void setDoc(
-      doc(db, "works", presetWork.workId),
-      {
-        ...presetWork,
-        updatedAt: Date.now(),
-      },
-      { merge: true },
-    );
+    if (authUser) {
+      void setDoc(
+        doc(db, "works", presetWork.workId),
+        {
+          ...presetWork,
+          updatedAt: Date.now(),
+        },
+        { merge: true },
+      ).catch((error) => {
+        console.error("作品情報の保存失敗", error);
+      });
+    }
 
     const requestId = textLoadRequestIdRef.current + 1;
     textLoadRequestIdRef.current = requestId;
@@ -2192,7 +2239,7 @@ export default function Home() {
     };
 
     loadText();
-  }, [selectedStory, loadMode]);
+  }, [selectedStory, loadMode, authUser]);
 
   useEffect(() => {
     if (readingUnits.length === 0) return;
@@ -2328,6 +2375,17 @@ export default function Home() {
     const handleLeave = () => {
       isPageLeavingRef.current = true;
 
+      if (participantId) {
+        void setDoc(
+          doc(db, "participants", participantId),
+          {
+            isReading: false,
+            updatedAt: Date.now(),
+          },
+          { merge: true },
+        );
+      }
+
       // 読み込み・復元途中の値を終了時に保存しない。
       if (Date.now() < restoreGuardUntilRef.current) return;
       if (isRestoringProgressRef.current) return;
@@ -2369,6 +2427,26 @@ export default function Home() {
         handleLeave();
       } else {
         isPageLeavingRef.current = false;
+
+        if (participantId) {
+          const activeWork =
+            currentWorkRef.current ??
+            getFallbackCurrentWork(selectedStoryRef.current);
+
+          void setDoc(
+            doc(db, "participants", participantId),
+            {
+              name: usernameRef.current || "名前なし",
+              userId: authUser?.uid ?? participantId,
+              workId: activeWork.workId,
+              isReading: true,
+              paragraphIndex: currentParagraphIndexRef.current,
+              joinedAt: joinedAt || Date.now(),
+              updatedAt: Date.now(),
+            },
+            { merge: true },
+          );
+        }
       }
     };
 
@@ -2478,11 +2556,17 @@ export default function Home() {
   ) => {
     if (!participantId || !joinedAt) return;
 
+    const activeWork =
+      currentWorkRef.current ??
+      getFallbackCurrentWork(selectedStoryRef.current);
+
     await setDoc(
       doc(db, "participants", participantId),
       {
         name: nextName || usernameRef.current || "名前なし",
         userId: authUser?.uid ?? participantId,
+        workId: activeWork.workId,
+        isReading: true,
         paragraphIndex: nextParagraphIndex,
         joinedAt,
         updatedAt: Date.now(),
@@ -2493,6 +2577,10 @@ export default function Home() {
 
   const updateLocalParticipant = (nextParagraphIndex: number) => {
     if (!participantId) return;
+
+    const activeWork =
+      currentWorkRef.current ??
+      getFallbackCurrentWork(selectedStoryRef.current);
 
     setParticipants((prev) => {
       const exists = prev.some(
@@ -2505,6 +2593,8 @@ export default function Home() {
           {
             id: participantId,
             name: usernameRef.current || "名前なし",
+            workId: activeWork.workId,
+            isReading: true,
             paragraphIndex: nextParagraphIndex,
             joinedAt: joinedAt || Date.now(),
             updatedAt: Date.now(),
@@ -2517,6 +2607,8 @@ export default function Home() {
           ? {
               ...participant,
               name: usernameRef.current || participant.name,
+              workId: activeWork.workId,
+              isReading: true,
               paragraphIndex: nextParagraphIndex,
               updatedAt: Date.now(),
             }
