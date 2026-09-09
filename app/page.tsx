@@ -40,6 +40,7 @@ type ReadingGroup = {
   createdBy: string;
   createdAt: number;
   memberIds: string[];
+  memberLastSeen: Record<string, number>;
 };
 
 type Participant = {
@@ -149,6 +150,8 @@ type LastReadingState = {
 };
 
 const MAX_PARTICIPANTS = 3;
+const GROUP_HEARTBEAT_INTERVAL_MS = 10 * 1000;
+const GROUP_MEMBER_TIMEOUT_MS = 30 * 1000;
 const ACTIVE_LIMIT_MS = 5 * 60 * 1000;
 
 const PARTICIPANT_ID_KEY = "sharedReadingParticipantId_v10";
@@ -515,6 +518,16 @@ function normalizeReadingGroup(
       : typeof raw.createdBy === "string" && raw.createdBy !== ""
         ? [raw.createdBy]
         : [],
+    memberLastSeen:
+      raw.memberLastSeen &&
+      typeof raw.memberLastSeen === "object" &&
+      !Array.isArray(raw.memberLastSeen)
+        ? Object.fromEntries(
+            Object.entries(raw.memberLastSeen).filter(
+              ([, value]) => typeof value === "number",
+            ),
+          )
+        : {},
   };
 }
 
@@ -1291,6 +1304,9 @@ export default function Home() {
   const [autoSpeed, setAutoSpeed] = useState(17);
   const [readingProgressNotice, setReadingProgressNotice] = useState("");
   const [returnIndex, setReturnIndex] = useState<number | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<
+    "controls" | "reaction" | "more" | null
+  >(null);
   const [storyProgressSummaries, setStoryProgressSummaries] = useState<
     Partial<Record<StoryKey, StoryProgressSummary>>
   >({});
@@ -1470,6 +1486,9 @@ export default function Home() {
           createdBy: authUser.uid,
           createdAt: Date.now(),
           memberIds: [authUser.uid],
+          memberLastSeen: {
+            [authUser.uid]: Date.now(),
+          },
         };
 
         await setDoc(groupRef, {
@@ -1478,6 +1497,7 @@ export default function Home() {
           createdBy: group.createdBy,
           createdAt: group.createdAt,
           memberIds: group.memberIds,
+          memberLastSeen: group.memberLastSeen,
         });
 
         createdGroup = group;
@@ -1569,11 +1589,19 @@ export default function Home() {
           freshGroupSnap.id,
         );
 
-        const alreadyMember = freshGroup.memberIds.includes(authUser.uid);
+        const now = Date.now();
+
+        const activeMemberIds = freshGroup.memberIds.filter((memberId) => {
+          const lastSeen = freshGroup.memberLastSeen[memberId] ?? 0;
+
+          return now - lastSeen < GROUP_MEMBER_TIMEOUT_MS;
+        });
+
+        const alreadyMember = activeMemberIds.includes(authUser.uid);
 
         if (
           !alreadyMember &&
-          freshGroup.memberIds.length >= MAX_PARTICIPANTS
+          activeMemberIds.length >= MAX_PARTICIPANTS
         ) {
           return {
             status: "full" as const,
@@ -1582,20 +1610,29 @@ export default function Home() {
         }
 
         const nextMemberIds = alreadyMember
-          ? freshGroup.memberIds
-          : [...freshGroup.memberIds, authUser.uid];
+          ? activeMemberIds
+          : [...activeMemberIds, authUser.uid];
 
-        if (!alreadyMember) {
-          transaction.update(groupRef, {
-            memberIds: nextMemberIds,
-          });
-        }
+        const nextMemberLastSeen = Object.fromEntries(
+          nextMemberIds.map((memberId) => [
+            memberId,
+            memberId === authUser.uid
+              ? now
+              : freshGroup.memberLastSeen[memberId] ?? now,
+          ]),
+        );
+
+        transaction.update(groupRef, {
+          memberIds: nextMemberIds,
+          memberLastSeen: nextMemberLastSeen,
+        });
 
         return {
           status: "ok" as const,
           group: {
             ...freshGroup,
             memberIds: nextMemberIds,
+            memberLastSeen: nextMemberLastSeen,
           },
         };
       });
@@ -1850,8 +1887,15 @@ export default function Home() {
           (memberId) => memberId !== authUser.uid,
         );
 
+        const nextMemberLastSeen = Object.fromEntries(
+          Object.entries(group.memberLastSeen).filter(
+            ([memberId]) => memberId !== authUser.uid,
+          ),
+        );
+
         transaction.update(groupRef, {
           memberIds: nextMemberIds,
+          memberLastSeen: nextMemberLastSeen,
         });
       });
 
@@ -2563,6 +2607,48 @@ export default function Home() {
       window.clearInterval(intervalId);
     };
   }, [authUser, sessionChecked]);
+
+  useEffect(() => {
+    if (!authUser || !currentGroup) return;
+
+    const updateGroupHeartbeat = async () => {
+      const groupRef = doc(db, "groups", currentGroup.id);
+
+      try {
+        await runTransaction(db, async (transaction) => {
+          const groupSnap = await transaction.get(groupRef);
+
+          if (!groupSnap.exists()) return;
+
+          const group = normalizeReadingGroup(
+            groupSnap.data() as Record<string, unknown>,
+            groupSnap.id,
+          );
+
+          if (!group.memberIds.includes(authUser.uid)) return;
+
+          transaction.update(groupRef, {
+            memberLastSeen: {
+              ...group.memberLastSeen,
+              [authUser.uid]: Date.now(),
+            },
+          });
+        });
+      } catch (error) {
+        console.error("グループheartbeat更新失敗", error);
+      }
+    };
+
+    void updateGroupHeartbeat();
+
+    const intervalId = window.setInterval(() => {
+      void updateGroupHeartbeat();
+    }, GROUP_HEARTBEAT_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [authUser, currentGroup?.id]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -4107,11 +4193,54 @@ export default function Home() {
     <main
       tabIndex={0}
       onKeyDown={handleReaderKeyDown}
-      className="min-h-screen bg-[#f5f1e8] px-4 py-6 outline-none"
+      className="min-h-screen bg-[#f5f1e8] px-2 pb-24 pt-2 outline-none sm:px-4 sm:pb-24 sm:pt-4 lg:py-6"
     >
       <div className="mx-auto max-w-7xl">
-        <header className="mb-5 rounded-[1.75rem] border border-[#e9e1d5] bg-white px-5 py-5 shadow-[0_12px_32px_rgba(30,41,59,0.06)] sm:px-7">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <header className="mb-3 rounded-2xl border border-[#e9e1d5] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(30,41,59,0.06)] lg:hidden">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[0.58rem] font-black tracking-[0.25em] text-[#a86f24]">
+                ReTA
+              </p>
+              <div className="mt-1 flex min-w-0 items-baseline gap-2">
+                <h1 className="truncate font-serif text-xl font-bold text-gray-950">
+                  {customTitle || stories[selectedStory].title}
+                </h1>
+                <span className="shrink-0 text-[0.68rem] font-bold text-gray-400">
+                  {customAuthor || stories[selectedStory].author}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setMobilePanel((current) =>
+                  current === "more" ? null : "more",
+                )
+              }
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fff7e8] text-lg font-black text-[#9a651f]"
+              aria-label="その他のメニュー"
+            >
+              ⋯
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5 text-[0.67rem] font-bold">
+            <span className="rounded-full bg-[#fff7e8] px-2.5 py-1.5 text-[#9a651f]">
+              👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}
+            </span>
+            <span className="rounded-full bg-[#fff7e8] px-2.5 py-1.5 text-[#9a651f]">
+              {currentGroup.name}
+            </span>
+            <span className="rounded-full border border-[#ead7b8] bg-white px-2.5 py-1.5 text-[#9a651f]">
+              {currentGroup.code}
+            </span>
+          </div>
+        </header>
+
+        <header className="mb-5 hidden rounded-[1.75rem] border border-[#e9e1d5] bg-white px-7 py-5 shadow-[0_12px_32px_rgba(30,41,59,0.06)] lg:block">
+          <div className="flex flex-col gap-3 sm:gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
               <div className="mb-3 flex items-center gap-3">
                 <span className="h-7 w-1 rounded-full bg-[#c79a53]" />
@@ -4121,7 +4250,7 @@ export default function Home() {
               </div>
 
               <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
-                <h1 className="font-serif text-3xl font-bold tracking-[-0.035em] text-gray-950 sm:text-4xl">
+                <h1 className="font-serif text-2xl font-bold tracking-[-0.035em] text-gray-950 sm:text-3xl lg:text-4xl">
                   {customTitle || stories[selectedStory].title}
                 </h1>
                 <p className="pb-1 text-sm font-semibold text-gray-500 sm:text-base">
@@ -4311,8 +4440,8 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
-          <section className="overflow-hidden rounded-[1.75rem] border border-[#e9e1d5] bg-[#fffdf8] shadow-[0_14px_34px_rgba(30,41,59,0.07)]">
+        <div className="grid gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+          <section className="overflow-hidden rounded-2xl border border-[#e9e1d5] bg-[#fffdf8] shadow-[0_14px_34px_rgba(30,41,59,0.07)] sm:rounded-[1.75rem]">
             <div className="border-b border-gray-100 px-5 py-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -4340,7 +4469,7 @@ export default function Home() {
             <div
               ref={readingAreaRef}
               onScroll={updateActiveUnitByCenter}
-              className={`relative h-[78vh] px-8 py-10 sm:px-12 lg:px-14 ${
+              className={`relative h-[calc(100dvh-11rem)] min-h-[420px] px-4 py-6 sm:h-[72vh] sm:px-8 sm:py-8 md:h-[74vh] md:px-10 lg:h-[78vh] lg:px-14 lg:py-10 ${
                 layoutMode === "horizontal"
                   ? "overflow-y-auto overflow-x-hidden"
                   : "overflow-x-auto overflow-y-hidden"
@@ -4628,7 +4757,7 @@ export default function Home() {
             </div>
           </section>
 
-          <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
+          <aside className="hidden space-y-4 lg:sticky lg:top-4 lg:block lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
             <div className="rounded-[1.5rem] border border-[#e9e1d5] bg-white p-4 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
@@ -4962,6 +5091,514 @@ export default function Home() {
           </aside>
         </div>
       </div>
+
+      {mobilePanel && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            aria-label="メニューを閉じる"
+            onClick={() => setMobilePanel(null)}
+            className="absolute inset-0 bg-black/25"
+          />
+
+          <div className="absolute inset-x-0 bottom-[4.9rem] mx-auto max-h-[70dvh] w-[calc(100%-1rem)] max-w-xl overflow-y-auto rounded-[1.6rem] border border-[#e9e1d5] bg-[#fffdf8] p-4 shadow-[0_-16px_50px_rgba(15,23,42,0.18)]">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-[0.6rem] font-black tracking-[0.22em] text-[#a86f24]">
+                  {mobilePanel === "controls"
+                    ? "READING CONTROL"
+                    : mobilePanel === "reaction"
+                      ? "REACTION"
+                      : "MORE"}
+                </p>
+                <h2 className="mt-1 text-lg font-black text-gray-950">
+                  {mobilePanel === "controls"
+                    ? "読書操作"
+                    : mobilePanel === "reaction"
+                      ? "リアクション"
+                      : "その他"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMobilePanel(null)}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-lg font-bold text-gray-500"
+              >
+                ×
+              </button>
+            </div>
+
+            {mobilePanel === "controls" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="mb-2 text-xs font-black text-gray-500">
+                    読み方
+                  </p>
+                  <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setReaderMode("reading")}
+                      className={`rounded-lg px-3 py-3 text-sm font-bold ${
+                        readerMode === "reading"
+                          ? "bg-white text-gray-950 shadow-sm"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      一人読み
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReaderMode("shared")}
+                      className={`rounded-lg px-3 py-3 text-sm font-bold ${
+                        readerMode === "shared"
+                          ? "bg-white text-gray-950 shadow-sm"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      みんなと読む
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-black text-gray-500">
+                    レイアウト
+                  </p>
+                  <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
+                    {[
+                      ["normal", "通常段落"],
+                      ["grouped", "2文"],
+                      ["horizontal", "横書き"],
+                    ].map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() =>
+                          changeLayoutModeKeepingPosition(mode as LayoutMode)
+                        }
+                        className={`rounded-lg px-2 py-3 text-xs font-bold ${
+                          layoutMode === mode
+                            ? "bg-white text-gray-950 shadow-sm"
+                            : "text-gray-500"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-[#fff7e8] p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-black text-gray-800">
+                      オート読書
+                    </span>
+                    <span className="text-xs font-bold text-[#a86f24]">
+                      {isAutoScroll ? `${autoSpeed}px/秒` : "停止中"}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="45"
+                    step="1"
+                    value={isAutoScroll ? autoSpeed : 0}
+                    onChange={(event) => {
+                      const nextSpeed = Number(event.target.value);
+                      if (nextSpeed <= 0) {
+                        setIsAutoScroll(false);
+                        return;
+                      }
+                      setAutoSpeed(nextSpeed);
+                      setIsAutoScroll(true);
+                    }}
+                    className="w-full accent-[#d8a348]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleMarkReturnPoint}
+                    className="rounded-xl bg-gray-100 px-3 py-3 text-sm font-bold text-gray-700"
+                  >
+                    ここに戻る
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReturnToSavedIndex}
+                    disabled={returnIndex === null}
+                    className="rounded-xl bg-[#f3cf7a] px-3 py-3 text-sm font-bold text-gray-800 disabled:opacity-35"
+                  >
+                    元の位置へ
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {mobilePanel === "reaction" && (
+              <div>
+                {readerMode !== "shared" ? (
+                  <div className="rounded-2xl bg-gray-50 px-4 py-5 text-center">
+                    <p className="text-sm font-bold text-gray-600">
+                      「みんなと読む」に切り替えると
+                      <br />
+                      リアクションを送れます。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setReaderMode("shared")}
+                      className="mt-4 rounded-xl bg-[#f3cf7a] px-5 py-3 text-sm font-black text-gray-800"
+                    >
+                      みんなと読む
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-2xl bg-yellow-50 p-3">
+                      <p className="mb-2 text-xs font-bold text-gray-500">
+                        今の区切りにリアクション
+                      </p>
+
+                      <div className="mb-3 grid grid-cols-5 gap-2">
+                        {["👍", "😮", "😢", "❤️", "🤔"].map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => setReactionEmoji(emoji)}
+                            className={`rounded-xl py-3 text-xl ${
+                              reactionEmoji === emoji
+                                ? "bg-yellow-300"
+                                : "bg-white"
+                            }`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+
+                      <textarea
+                        value={reactionComment}
+                        onChange={(event) =>
+                          setReactionComment(event.target.value)
+                        }
+                        placeholder="コメントを書く"
+                        className="h-20 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={handleAddReaction}
+                        className="mt-2 w-full rounded-xl bg-yellow-300 px-4 py-3 text-sm font-black text-gray-800"
+                      >
+                        追加する
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {visibleReactions.length === 0 ? (
+                        <p className="rounded-xl bg-gray-50 px-3 py-4 text-center text-xs font-bold text-gray-400">
+                          まだリアクションはありません
+                        </p>
+                      ) : (
+                        visibleReactions.map((reaction, index) => (
+                          <div
+                            key={`${reaction.createdAt}-${index}`}
+                            className="rounded-xl bg-gray-50 px-3 py-2 text-sm"
+                          >
+                            <div className="font-bold">
+                              {reaction.participantName}：{reaction.emoji}
+                              <span className="ml-2 text-xs font-normal text-gray-400">
+                                {reaction.paragraphIndex + 1}区切り目
+                              </span>
+                            </div>
+                            {reaction.comment && (
+                              <div className="mt-1 text-gray-600">
+                                {reaction.comment}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {mobilePanel === "more" && (
+              <div className="space-y-4">
+                <div className="rounded-2xl bg-[#fff7e8] p-4">
+                  <p className="text-xs font-black text-[#a86f24]">
+                    GROUP
+                  </p>
+                  <p className="mt-1 font-black text-gray-900">
+                    {currentGroup.name}
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-gray-500">
+                    参加コード：{currentGroup.code}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {username || "利用者"}でログイン中
+                  </p>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-black text-gray-900">
+                    最近読んだ作品
+                  </h3>
+
+                  <div className="space-y-2">
+                    {userReadingProgresses.slice(0, 4).map((progress) => (
+                      <button
+                        key={progress.workId}
+                        type="button"
+                        onClick={() => {
+                          handleOpenReadingProgress(progress);
+                          setMobilePanel(null);
+                        }}
+                        className="flex w-full items-center justify-between rounded-xl border border-[#eee7dc] bg-white px-3 py-3 text-left"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-black text-gray-900">
+                            {progress.title}
+                          </span>
+                          <span className="block truncate text-xs font-bold text-gray-400">
+                            {progress.author}
+                          </span>
+                        </span>
+                        <span className="ml-3 shrink-0 text-xs font-black text-[#a86f24]">
+                          {progress.percent}%
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <details className="rounded-2xl border border-[#eee7dc] bg-white">
+                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-black text-gray-800">
+                    ＋ 別の作品を開く
+                  </summary>
+
+                  <div className="border-t border-[#eee7dc] p-4">
+                    <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoadMode("preset");
+                          setAozoraLoadError("");
+                        }}
+                        className={`rounded-lg px-3 py-2.5 text-xs font-bold ${
+                          loadMode === "preset"
+                            ? "bg-white text-gray-950 shadow-sm"
+                            : "text-gray-500"
+                        }`}
+                      >
+                        登録済み
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoadMode("url");
+                          setAozoraLoadError("");
+                        }}
+                        className={`rounded-lg px-3 py-2.5 text-xs font-bold ${
+                          loadMode === "url"
+                            ? "bg-white text-gray-950 shadow-sm"
+                            : "text-gray-500"
+                        }`}
+                      >
+                        青空文庫URL
+                      </button>
+                    </div>
+
+                    {loadMode === "preset" && (
+                      <select
+                        value={selectedStory}
+                        onChange={(event) => {
+                          void handleSelectPresetStory(
+                            event.target.value as StoryKey,
+                          );
+                          setMobilePanel(null);
+                        }}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none"
+                      >
+                        {Object.entries(stories).map(([key, story]) => (
+                          <option key={key} value={key}>
+                            {story.title}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {loadMode === "url" && (
+                      <div className="space-y-2">
+                        <input
+                          type="url"
+                          value={aozoraUrl}
+                          onChange={(event) => {
+                            setAozoraUrl(event.target.value);
+                            setAozoraLoadError("");
+                          }}
+                          placeholder="青空文庫の図書カードURL"
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleLoadAozoraUrl();
+                          }}
+                          disabled={isLoadingAozora}
+                          className="w-full rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
+                        >
+                          {isLoadingAozora
+                            ? "読み込み中"
+                            : "この本を読む"}
+                        </button>
+                      </div>
+                    )}
+
+                    {aozoraLoadError && (
+                      <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-500">
+                        {aozoraLoadError}
+                      </p>
+                    )}
+                  </div>
+                </details>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-black text-gray-900">
+                    用語検索
+                  </h3>
+                  <input
+                    type="text"
+                    value={searchWord}
+                    onChange={(event) => {
+                      const nextWord = event.target.value;
+                      setSearchWord(nextWord);
+                      setSelectedWord(nextWord);
+                    }}
+                    onBlur={() => fetchWikiMeaning(searchWord)}
+                    placeholder="調べたい言葉を入力"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm outline-none"
+                  />
+
+                  {searchWord && (
+                    <div className="mt-2 rounded-xl bg-gray-50 p-3">
+                      <p className="font-black text-gray-900">
+                        {selectedWord}
+                      </p>
+                      <p className="mt-1 text-sm leading-relaxed text-gray-600">
+                        {dictionary[searchWord] ||
+                          wikiMeaning ||
+                          (isSearchingMeaning
+                            ? "意味を調べています..."
+                            : "意味が見つかりませんでした")}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => void handleLeaveGroup()}
+                    className="rounded-xl border border-[#ead7b8] bg-white px-3 py-3 text-sm font-bold text-[#9a651f]"
+                  >
+                    グループを退会
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-bold text-gray-500"
+                  >
+                    ログアウト
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[#e7dfd3] bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.4rem)] pt-2 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
+        <div className="mx-auto grid max-w-xl grid-cols-4 gap-1">
+          <button
+            type="button"
+            onClick={() => setMobilePanel(null)}
+            className={`rounded-xl py-2 text-center ${
+              mobilePanel === null
+                ? "bg-[#fff7e8] text-[#9a651f]"
+                : "text-gray-400"
+            }`}
+          >
+            <span className="block text-lg">📖</span>
+            <span className="mt-0.5 block text-[0.62rem] font-black">
+              読書
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setMobilePanel((current) =>
+                current === "controls" ? null : "controls",
+              )
+            }
+            className={`rounded-xl py-2 text-center ${
+              mobilePanel === "controls"
+                ? "bg-[#fff7e8] text-[#9a651f]"
+                : "text-gray-400"
+            }`}
+          >
+            <span className="block text-lg">⚙️</span>
+            <span className="mt-0.5 block text-[0.62rem] font-black">
+              操作
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setMobilePanel((current) =>
+                current === "reaction" ? null : "reaction",
+              )
+            }
+            className={`rounded-xl py-2 text-center ${
+              mobilePanel === "reaction"
+                ? "bg-[#fff7e8] text-[#9a651f]"
+                : "text-gray-400"
+            }`}
+          >
+            <span className="block text-lg">😊</span>
+            <span className="mt-0.5 block text-[0.62rem] font-black">
+              反応
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setMobilePanel((current) =>
+                current === "more" ? null : "more",
+              )
+            }
+            className={`rounded-xl py-2 text-center ${
+              mobilePanel === "more"
+                ? "bg-[#fff7e8] text-[#9a651f]"
+                : "text-gray-400"
+            }`}
+          >
+            <span className="block text-lg">•••</span>
+            <span className="mt-0.5 block text-[0.62rem] font-black">
+              その他
+            </span>
+          </button>
+        </div>
+      </nav>
     </main>
   );
 }
