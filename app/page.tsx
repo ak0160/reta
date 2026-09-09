@@ -17,9 +17,12 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
+  runTransaction,
   setDoc,
+  where,
 } from "firebase/firestore";
 
 import {
@@ -30,9 +33,22 @@ import {
   type User,
 } from "firebase/auth";
 
+type ReadingGroup = {
+  id: string;
+  name: string;
+  code: string;
+  createdBy: string;
+  createdAt: number;
+  memberIds: string[];
+  memberLastSeen: Record<string, number>;
+};
+
 type Participant = {
   id: string;
   name: string;
+  groupId: string;
+  workId: string;
+  isReading: boolean;
   paragraphIndex: number;
   joinedAt: number;
   updatedAt: number;
@@ -40,6 +56,7 @@ type Participant = {
 
 type Reaction = {
   storyKey: StoryKey | "";
+  groupId: string;
   workId?: string;
   workTitle?: string;
   workAuthor?: string;
@@ -133,6 +150,8 @@ type LastReadingState = {
 };
 
 const MAX_PARTICIPANTS = 3;
+const GROUP_HEARTBEAT_INTERVAL_MS = 10 * 1000;
+const GROUP_MEMBER_TIMEOUT_MS = 30 * 1000;
 const ACTIVE_LIMIT_MS = 5 * 60 * 1000;
 
 const PARTICIPANT_ID_KEY = "sharedReadingParticipantId_v10";
@@ -211,8 +230,12 @@ function getFallbackCurrentWork(storyKey: StoryKey): CurrentWork {
   return createPresetWork(storyKey);
 }
 
-function getReadingProgressKey(storyKey: StoryKey, layoutMode: LayoutMode) {
-  return `${READING_PROGRESS_KEY_PREFIX}_${storyKey}_${layoutMode}`;
+function getReadingProgressKey(
+  userId: string,
+  storyKey: StoryKey,
+  layoutMode: LayoutMode,
+) {
+  return `${READING_PROGRESS_KEY_PREFIX}_${userId}_${storyKey}_${layoutMode}`;
 }
 
 function getDisplayPercent(index: number, count: number) {
@@ -224,6 +247,7 @@ function getDisplayPercent(index: number, count: number) {
 }
 
 function saveLastReadingState(
+  userId: string,
   work: CurrentWork,
   storyKey: StoryKey | "",
   layoutMode: LayoutMode,
@@ -232,7 +256,7 @@ function saveLastReadingState(
   scrollLeft: number,
   scrollTop: number,
 ) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !userId) return;
 
   const state: LastReadingState = {
     workType: work.type,
@@ -249,13 +273,18 @@ function saveLastReadingState(
     savedAt: Date.now(),
   };
 
-  localStorage.setItem(LAST_READING_STATE_KEY, JSON.stringify(state));
+  localStorage.setItem(
+    `${LAST_READING_STATE_KEY}_${userId}`,
+    JSON.stringify(state),
+  );
 }
 
-function loadLastReadingState() {
-  if (typeof window === "undefined") return null;
+function loadLastReadingState(userId: string) {
+  if (typeof window === "undefined" || !userId) return null;
 
-  const rawState = localStorage.getItem(LAST_READING_STATE_KEY);
+  const rawState = localStorage.getItem(
+    `${LAST_READING_STATE_KEY}_${userId}`,
+  );
   if (!rawState) return null;
 
   try {
@@ -299,6 +328,7 @@ function loadLastReadingState() {
 }
 
 function writeReadingProgress(
+  userId: string,
   storyKey: StoryKey,
   layoutMode: LayoutMode,
   currentParagraphIndex: number,
@@ -306,7 +336,7 @@ function writeReadingProgress(
   scrollLeft: number,
   scrollTop = 0,
 ) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !userId) return;
   if (readingUnitsLength <= 0) return;
 
   const safeIndex = Math.max(
@@ -325,20 +355,21 @@ function writeReadingProgress(
   };
 
   localStorage.setItem(
-    getReadingProgressKey(storyKey, layoutMode),
+    getReadingProgressKey(userId, storyKey, layoutMode),
     JSON.stringify(progress),
   );
 
 }
 
 function loadReadingProgressFromStorage(
+  userId: string,
   storyKey: StoryKey,
   layoutMode: LayoutMode,
 ) {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined" || !userId) return null;
 
   const rawProgress = localStorage.getItem(
-    getReadingProgressKey(storyKey, layoutMode),
+    getReadingProgressKey(userId, storyKey, layoutMode),
   );
 
   if (!rawProgress) return null;
@@ -357,12 +388,12 @@ function loadReadingProgressFromStorage(
   }
 }
 
-function loadProgressSummaryForStory(storyKey: StoryKey) {
+function loadProgressSummaryForStory(userId: string, storyKey: StoryKey) {
   if (typeof window === "undefined") return null;
 
   const summaries = (["normal", "grouped", "horizontal"] as LayoutMode[])
     .map((mode) => {
-      const progress = loadReadingProgressFromStorage(storyKey, mode);
+      const progress = loadReadingProgressFromStorage(userId, storyKey, mode);
       if (!progress) return null;
 
       const length = Math.max(1, Number(progress.readingUnitsLength || 1));
@@ -387,15 +418,15 @@ function loadProgressSummaryForStory(storyKey: StoryKey) {
   return summaries[0] ?? null;
 }
 
-function loadAllStoryProgressSummaries() {
-  if (typeof window === "undefined") {
+function loadAllStoryProgressSummaries(userId: string) {
+  if (typeof window === "undefined" || !userId) {
     return {} as Partial<Record<StoryKey, StoryProgressSummary>>;
   }
 
   return Object.keys(stories).reduce(
     (summaryMap, key) => {
       const storyKey = key as StoryKey;
-      const summary = loadProgressSummaryForStory(storyKey);
+      const summary = loadProgressSummaryForStory(userId, storyKey);
 
       if (summary) {
         summaryMap[storyKey] = summary;
@@ -405,6 +436,14 @@ function loadAllStoryProgressSummaries() {
     },
     {} as Partial<Record<StoryKey, StoryProgressSummary>>,
   );
+}
+
+function createSessionId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 function createParticipantId() {
@@ -445,9 +484,50 @@ function normalizeParticipant(
   return {
     id,
     name: typeof raw.name === "string" ? raw.name : "",
+    groupId: typeof raw.groupId === "string" ? raw.groupId : "",
+    workId: typeof raw.workId === "string" ? raw.workId : "",
+    isReading: raw.isReading === true,
     paragraphIndex: Number(raw.paragraphIndex ?? 0),
     joinedAt: Number(raw.joinedAt ?? now),
     updatedAt: Number(raw.updatedAt ?? 0),
+  };
+}
+
+function createGroupCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+  return Array.from({ length: 6 }, () => {
+    return chars[Math.floor(Math.random() * chars.length)];
+  }).join("");
+}
+
+function normalizeReadingGroup(
+  raw: Record<string, unknown>,
+  id: string,
+): ReadingGroup {
+  return {
+    id,
+    name: typeof raw.name === "string" ? raw.name : "",
+    code: typeof raw.code === "string" ? raw.code : "",
+    createdBy: typeof raw.createdBy === "string" ? raw.createdBy : "",
+    createdAt: Number(raw.createdAt ?? 0),
+    memberIds: Array.isArray(raw.memberIds)
+      ? raw.memberIds.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : typeof raw.createdBy === "string" && raw.createdBy !== ""
+        ? [raw.createdBy]
+        : [],
+    memberLastSeen:
+      raw.memberLastSeen &&
+      typeof raw.memberLastSeen === "object" &&
+      !Array.isArray(raw.memberLastSeen)
+        ? Object.fromEntries(
+            Object.entries(raw.memberLastSeen).filter(
+              ([, value]) => typeof value === "number",
+            ),
+          )
+        : {},
   };
 }
 
@@ -455,6 +535,7 @@ function normalizeReaction(raw: Record<string, unknown>): Reaction {
   return {
     storyKey:
       typeof raw.storyKey === "string" ? (raw.storyKey as StoryKey) : "",
+    groupId: typeof raw.groupId === "string" ? raw.groupId : "",
     workId: typeof raw.workId === "string" ? raw.workId : undefined,
     workTitle: typeof raw.workTitle === "string" ? raw.workTitle : undefined,
     workAuthor: typeof raw.workAuthor === "string" ? raw.workAuthor : undefined,
@@ -1165,6 +1246,8 @@ export default function Home() {
   const [loginPassword, setLoginPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const sessionIdRef = useRef("");
 
   const [readerMode, setReaderMode] = useState<ReaderMode>("reading");
 
@@ -1189,6 +1272,11 @@ export default function Home() {
   const [participantId, setParticipantId] = useState("");
   const [joinedAt, setJoinedAt] = useState(0);
   const [username, setUsername] = useState("");
+
+  const [currentGroup, setCurrentGroup] = useState<ReadingGroup | null>(null);
+  const [groupName, setGroupName] = useState("");
+  const [groupCode, setGroupCode] = useState("");
+  const [groupError, setGroupError] = useState("");
 
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [reactions, setReactions] = useState<Reaction[]>([]);
@@ -1216,6 +1304,9 @@ export default function Home() {
   const [autoSpeed, setAutoSpeed] = useState(17);
   const [readingProgressNotice, setReadingProgressNotice] = useState("");
   const [returnIndex, setReturnIndex] = useState<number | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<
+    "controls" | "reaction" | "more" | null
+  >(null);
   const [storyProgressSummaries, setStoryProgressSummaries] = useState<
     Partial<Record<StoryKey, StoryProgressSummary>>
   >({});
@@ -1235,6 +1326,7 @@ export default function Home() {
   const selectedStoryRef = useRef<StoryKey>("wagahai");
   const currentWorkRef = useRef<CurrentWork>(createPresetWork("wagahai"));
   const pendingResumeProgressRef = useRef<UserReadingProgress | null>(null);
+  const pendingFreshStartWorkIdRef = useRef<string | null>(null);
   const layoutModeRef = useRef<LayoutMode>("normal");
   const readingUnitsLengthRef = useRef(0);
   const didLoadLastReadingStateRef = useRef(false);
@@ -1286,16 +1378,42 @@ export default function Home() {
     const now = Date.now();
 
     return participants.filter((participant) => {
+      const isSelf = participant.id === participantId;
+
+      if (isSelf) {
+        return participant.name.trim() !== "";
+      }
+
       return (
         now - participant.updatedAt < ACTIVE_LIMIT_MS &&
         participant.name.trim() !== ""
       );
     });
-  }, [participants]);
+  }, [participants, participantId]);
 
   const admittedParticipants = useMemo(() => {
-    return activeParticipants.slice(0, MAX_PARTICIPANTS);
-  }, [activeParticipants]);
+    const self = activeParticipants.find(
+      (participant) => participant.id === participantId,
+    );
+
+    const others = activeParticipants.filter(
+      (participant) => participant.id !== participantId,
+    );
+
+    if (!self) {
+      return others.slice(0, MAX_PARTICIPANTS);
+    }
+
+    return [self, ...others].slice(0, MAX_PARTICIPANTS);
+  }, [activeParticipants, participantId]);
+
+  const visibleParticipants = useMemo(() => {
+    return admittedParticipants.filter(
+      (participant) =>
+        participant.workId === currentWork.workId &&
+        participant.isReading,
+    );
+  }, [admittedParticipants, currentWork.workId]);
 
   const isAdmitted = useMemo(() => {
     return admittedParticipants.some(
@@ -1304,7 +1422,12 @@ export default function Home() {
   }, [admittedParticipants, participantId]);
 
   const visibleReactions = useMemo(() => {
+    if (!currentGroup) {
+      return [];
+    }
+
     return reactions
+      .filter((reaction) => reaction.groupId === currentGroup.id)
       .filter((reaction) => {
         if (reaction.workId) {
           return reaction.workId === currentWork?.workId;
@@ -1315,12 +1438,250 @@ export default function Home() {
         );
       })
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [reactions, selectedStory, currentWork]);
+  }, [reactions, selectedStory, currentWork, currentGroup]);
 
   const createLoginEmail = (username: string) => {
     const safeName = username.trim().toLowerCase();
 
     return `${encodeURIComponent(safeName)}@shared-reading.local`;
+  };
+
+  const handleCreateGroup = async () => {
+    if (!authUser) {
+      setGroupError("ログインしてください");
+      return;
+    }
+
+    const trimmedName = groupName.trim();
+
+    if (!trimmedName) {
+      setGroupError("グループ名を入力してください");
+      return;
+    }
+
+    setGroupError("");
+
+    try {
+      let createdGroup: ReadingGroup | null = null;
+
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const code = createGroupCode();
+
+        const groupQuery = query(
+          collection(db, "groups"),
+          where("code", "==", code),
+        );
+
+        const groupSnapshot = await getDocs(groupQuery);
+
+        if (!groupSnapshot.empty) {
+          continue;
+        }
+
+        const groupRef = doc(collection(db, "groups"));
+        const group: ReadingGroup = {
+          id: groupRef.id,
+          name: trimmedName,
+          code,
+          createdBy: authUser.uid,
+          createdAt: Date.now(),
+          memberIds: [authUser.uid],
+          memberLastSeen: {
+            [authUser.uid]: Date.now(),
+          },
+        };
+
+        await setDoc(groupRef, {
+          name: group.name,
+          code: group.code,
+          createdBy: group.createdBy,
+          createdAt: group.createdAt,
+          memberIds: group.memberIds,
+          memberLastSeen: group.memberLastSeen,
+        });
+
+        createdGroup = group;
+        break;
+      }
+
+      if (!createdGroup) {
+        setGroupError("グループコードの生成に失敗しました");
+        return;
+      }
+
+      if (participantId && joinedAt) {
+        const activeWork =
+          currentWorkRef.current ??
+          getFallbackCurrentWork(selectedStoryRef.current);
+
+        await setDoc(
+          doc(db, "participants", participantId),
+          {
+            name: usernameRef.current || "名前なし",
+            userId: authUser.uid,
+            groupId: createdGroup.id,
+            workId: activeWork.workId,
+            isReading: true,
+            paragraphIndex: currentParagraphIndex,
+            joinedAt,
+            updatedAt: Date.now(),
+          },
+          { merge: true },
+        );
+      }
+
+      window.localStorage.setItem(
+        `retaCurrentGroup_${authUser.uid}`,
+        createdGroup.id,
+      );
+
+      setCurrentGroup(createdGroup);
+      setGroupCode(createdGroup.code);
+    } catch (error) {
+      console.error("グループ作成失敗", error);
+      setGroupError("グループを作成できませんでした");
+    }
+  };
+
+  const handleJoinGroup = async () => {
+    if (!authUser) {
+      setGroupError("ログインしてください");
+      return;
+    }
+
+    const normalizedCode = groupCode.trim().toUpperCase();
+
+    if (!normalizedCode) {
+      setGroupError("参加コードを入力してください");
+      return;
+    }
+
+    setGroupError("");
+
+    try {
+      const groupQuery = query(
+        collection(db, "groups"),
+        where("code", "==", normalizedCode),
+      );
+
+      const groupSnapshot = await getDocs(groupQuery);
+
+      if (groupSnapshot.empty) {
+        setGroupError("この参加コードのグループは見つかりません");
+        return;
+      }
+
+      const groupDoc = groupSnapshot.docs[0];
+      const groupRef = doc(db, "groups", groupDoc.id);
+
+      const joinResult = await runTransaction(db, async (transaction) => {
+        const freshGroupSnap = await transaction.get(groupRef);
+
+        if (!freshGroupSnap.exists()) {
+          return {
+            status: "not-found" as const,
+            group: null,
+          };
+        }
+
+        const freshGroup = normalizeReadingGroup(
+          freshGroupSnap.data() as Record<string, unknown>,
+          freshGroupSnap.id,
+        );
+
+        const now = Date.now();
+
+        const activeMemberIds = freshGroup.memberIds.filter((memberId) => {
+          const lastSeen = freshGroup.memberLastSeen[memberId] ?? 0;
+
+          return now - lastSeen < GROUP_MEMBER_TIMEOUT_MS;
+        });
+
+        const alreadyMember = activeMemberIds.includes(authUser.uid);
+
+        if (
+          !alreadyMember &&
+          activeMemberIds.length >= MAX_PARTICIPANTS
+        ) {
+          return {
+            status: "full" as const,
+            group: null,
+          };
+        }
+
+        const nextMemberIds = alreadyMember
+          ? activeMemberIds
+          : [...activeMemberIds, authUser.uid];
+
+        const nextMemberLastSeen = Object.fromEntries(
+          nextMemberIds.map((memberId) => [
+            memberId,
+            memberId === authUser.uid
+              ? now
+              : freshGroup.memberLastSeen[memberId] ?? now,
+          ]),
+        );
+
+        transaction.update(groupRef, {
+          memberIds: nextMemberIds,
+          memberLastSeen: nextMemberLastSeen,
+        });
+
+        return {
+          status: "ok" as const,
+          group: {
+            ...freshGroup,
+            memberIds: nextMemberIds,
+            memberLastSeen: nextMemberLastSeen,
+          },
+        };
+      });
+
+      if (joinResult.status === "full") {
+        setGroupError("このグループは3人参加しているため満員です");
+        return;
+      }
+
+      if (joinResult.status === "not-found" || !joinResult.group) {
+        setGroupError("このグループは見つかりません");
+        return;
+      }
+
+      const group = joinResult.group;
+
+      if (participantId && joinedAt) {
+        const activeWork =
+          currentWorkRef.current ??
+          getFallbackCurrentWork(selectedStoryRef.current);
+
+        await setDoc(
+          doc(db, "participants", participantId),
+          {
+            name: usernameRef.current || "名前なし",
+            userId: authUser.uid,
+            groupId: group.id,
+            workId: activeWork.workId,
+            isReading: true,
+            paragraphIndex: currentParagraphIndex,
+            joinedAt,
+            updatedAt: Date.now(),
+          },
+          { merge: true },
+        );
+      }
+
+      window.localStorage.setItem(
+        `retaCurrentGroup_${authUser.uid}`,
+        group.id,
+      );
+
+      setCurrentGroup(group);
+      setGroupCode(group.code);
+    } catch (error) {
+      console.error("グループ参加失敗", error);
+
+      setGroupError("グループに参加できませんでした");
+    }
   };
 
   const handleRegister = async () => {
@@ -1394,10 +1755,71 @@ export default function Home() {
 
     setIsAuthLoading(true);
     setAuthError("");
+    setSessionChecked(false);
 
     try {
       const email = createLoginEmail(username);
-      await signInWithEmailAndPassword(auth, email, loginPassword);
+      const result = await signInWithEmailAndPassword(
+        auth,
+        email,
+        loginPassword,
+      );
+
+      const sessionDocRef = doc(db, "activeSessions", result.user.uid);
+      const now = Date.now();
+      const sessionTimeoutMs = 5 * 60 * 1000;
+      const sessionStorageKey = `retaActiveSession_${result.user.uid}`;
+      const storedSessionId = window.localStorage.getItem(sessionStorageKey);
+      const sessionId = storedSessionId || createSessionId();
+
+      const sessionAcquired = await runTransaction(db, async (transaction) => {
+        const sessionSnap = await transaction.get(sessionDocRef);
+
+        if (sessionSnap.exists()) {
+          const sessionData = sessionSnap.data();
+
+          const existingSessionId =
+            typeof sessionData.sessionId === "string"
+              ? sessionData.sessionId
+              : "";
+
+          const updatedAt = Number(sessionData.updatedAt ?? 0);
+
+          const isActive =
+            existingSessionId !== "" &&
+            now - updatedAt < sessionTimeoutMs;
+
+          if (isActive && existingSessionId !== sessionId) {
+            return false;
+          }
+        }
+
+        transaction.set(
+          sessionDocRef,
+          {
+            userId: result.user.uid,
+            sessionId,
+            updatedAt: now,
+          },
+          { merge: true },
+        );
+
+        return true;
+      });
+
+      if (!sessionAcquired) {
+        await signOut(auth);
+
+        setAuthError(
+          "このアカウントは現在、ほかのブラウザまたは端末で利用中です。先にログアウトしてください",
+        );
+
+        return;
+      }
+
+      sessionIdRef.current = sessionId;
+      window.localStorage.setItem(sessionStorageKey, sessionId);
+      setSessionChecked(true);
     } catch (error) {
       console.error(error);
       setAuthError("利用者名またはパスワードが違います");
@@ -1415,8 +1837,85 @@ export default function Home() {
       }
     }
 
+    if (authUser && sessionIdRef.current) {
+      try {
+        const sessionDocRef = doc(db, "activeSessions", authUser.uid);
+        const sessionSnap = await getDoc(sessionDocRef);
+
+        if (
+          sessionSnap.exists() &&
+          sessionSnap.data().sessionId === sessionIdRef.current
+        ) {
+          await deleteDoc(sessionDocRef);
+        }
+      } catch (error) {
+        console.error("ログアウト時のセッション削除失敗", error);
+      }
+    }
+
+    if (authUser) {
+      window.localStorage.removeItem(`retaActiveSession_${authUser.uid}`);
+      window.localStorage.removeItem(`retaCurrentGroup_${authUser.uid}`);
+    }
+
+    sessionIdRef.current = "";
+    setSessionChecked(false);
     setIsAutoScroll(false);
+
     await signOut(auth);
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!authUser || !currentGroup) return;
+
+    try {
+      const groupRef = doc(db, "groups", currentGroup.id);
+
+      await runTransaction(db, async (transaction) => {
+        const groupSnap = await transaction.get(groupRef);
+
+        if (!groupSnap.exists()) {
+          return;
+        }
+
+        const group = normalizeReadingGroup(
+          groupSnap.data() as Record<string, unknown>,
+          groupSnap.id,
+        );
+
+        const nextMemberIds = group.memberIds.filter(
+          (memberId) => memberId !== authUser.uid,
+        );
+
+        const nextMemberLastSeen = Object.fromEntries(
+          Object.entries(group.memberLastSeen).filter(
+            ([memberId]) => memberId !== authUser.uid,
+          ),
+        );
+
+        transaction.update(groupRef, {
+          memberIds: nextMemberIds,
+          memberLastSeen: nextMemberLastSeen,
+        });
+      });
+
+      if (participantId) {
+        await deleteDoc(doc(db, "participants", participantId));
+      }
+
+      window.localStorage.removeItem(
+        `retaCurrentGroup_${authUser.uid}`,
+      );
+
+      setCurrentGroup(null);
+      setGroupName("");
+      setGroupCode("");
+      setGroupError("");
+      setParticipants([]);
+    } catch (error) {
+      console.error("グループ退会失敗", error);
+      setGroupError("グループから退会できませんでした");
+    }
   };
 
   const resetToBeginning = (nextMode: LayoutMode = layoutMode) => {
@@ -1471,6 +1970,7 @@ export default function Home() {
     updateLocalParticipant(targetIndex);
 
     writeReadingProgress(
+      authUser?.uid ?? "",
       selectedStoryRef.current,
       layoutModeRef.current,
       currentParagraphIndexRef.current,
@@ -1483,7 +1983,9 @@ export default function Home() {
   };
 
   const refreshStoryProgressSummaries = () => {
-    setStoryProgressSummaries(loadAllStoryProgressSummaries());
+    setStoryProgressSummaries(
+      loadAllStoryProgressSummaries(authUser?.uid ?? ""),
+    );
   };
 
   const rememberRecentAozoraBook = (book: AozoraSearchBook) => {
@@ -1514,14 +2016,18 @@ export default function Home() {
     currentWorkRef.current = urlWork;
 
 
-    void setDoc(
-      doc(db, "works", urlWork.workId),
-      {
-        ...urlWork,
-        updatedAt: Date.now(),
-      },
-      { merge: true },
-    );
+    if (authUser) {
+      void setDoc(
+        doc(db, "works", urlWork.workId),
+        {
+          ...urlWork,
+          updatedAt: Date.now(),
+        },
+        { merge: true },
+      ).catch((error) => {
+        console.error("URL作品情報の保存失敗", error);
+      });
+    }
 
     const cleanedParagraphs = cleanAozoraText(
       loadedText.rawText,
@@ -1621,17 +2127,21 @@ export default function Home() {
         book.cardUrl || targetUrl,
       );
 
-      openLoadedAozoraText(loadedText, canonicalSourceUrl);
+      const workId = createUrlWorkId(canonicalSourceUrl);
+      const savedProgress = await loadReadingProgressFromFirestore(workId);
+
+      if (savedProgress) {
+        pendingResumeProgressRef.current = savedProgress;
+        pendingFreshStartWorkIdRef.current = null;
+        setLayoutMode(savedProgress.layoutMode);
+        layoutModeRef.current = savedProgress.layoutMode;
+      } else {
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = workId;
+      }
+
+      openLoadedAozoraText(loadedText, canonicalSourceUrl, true);
       setAozoraUrl(canonicalSourceUrl);
-      saveLastReadingState(
-        currentWorkRef.current,
-        "",
-        layoutModeRef.current,
-        0,
-        0,
-        0,
-        0,
-      );
       rememberRecentAozoraBook({
         ...book,
         id: createUrlWorkId(canonicalSourceUrl),
@@ -1673,17 +2183,21 @@ export default function Home() {
       const loadedText = await loadAozoraTextFromUrl(trimmedUrl);
       const canonicalSourceUrl = getCanonicalSourceUrl(trimmedUrl);
 
-      openLoadedAozoraText(loadedText, canonicalSourceUrl);
+      const workId = createUrlWorkId(canonicalSourceUrl);
+      const savedProgress = await loadReadingProgressFromFirestore(workId);
+
+      if (savedProgress) {
+        pendingResumeProgressRef.current = savedProgress;
+        pendingFreshStartWorkIdRef.current = null;
+        setLayoutMode(savedProgress.layoutMode);
+        layoutModeRef.current = savedProgress.layoutMode;
+      } else {
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = workId;
+      }
+
+      openLoadedAozoraText(loadedText, canonicalSourceUrl, true);
       setAozoraUrl(canonicalSourceUrl);
-      saveLastReadingState(
-        currentWorkRef.current,
-        "",
-        layoutModeRef.current,
-        0,
-        0,
-        0,
-        0,
-      );
 
       const recentBook: AozoraSearchBook = {
         id: createUrlWorkId(canonicalSourceUrl),
@@ -1709,6 +2223,91 @@ export default function Home() {
     } finally {
       setIsLoadingAozora(false);
     }
+  };
+
+  const loadReadingProgressFromFirestore = async (
+    workId: string,
+  ): Promise<UserReadingProgress | null> => {
+    if (!authUser || !workId) return null;
+
+    try {
+      const progressDocId = `${authUser.uid}_${workId}`;
+      const progressSnap = await getDoc(
+        doc(db, "readingProgress", progressDocId),
+      );
+
+      if (!progressSnap.exists()) {
+        return null;
+      }
+
+      const progress = normalizeUserReadingProgress(progressSnap.data());
+
+      if (
+        progress.userId !== authUser.uid ||
+        progress.workId !== workId ||
+        progress.readingUnitsLength <= 0
+      ) {
+        return null;
+      }
+
+      const safeIndex = Math.max(
+        0,
+        Math.min(
+          progress.currentParagraphIndex,
+          progress.readingUnitsLength - 1,
+        ),
+      );
+
+      return {
+        ...progress,
+        docId: progressSnap.id,
+        currentParagraphIndex: safeIndex,
+        percent: getDisplayPercent(
+          safeIndex,
+          progress.readingUnitsLength,
+        ),
+      };
+    } catch (error) {
+      console.error("Firestoreからの読書位置取得失敗", error);
+      return null;
+    }
+  };
+
+  const handleSelectPresetStory = async (storyKey: StoryKey) => {
+    const nextWork = createPresetWork(storyKey);
+
+    setIsAutoScroll(false);
+    setReturnIndex(null);
+    setSelectedWord("");
+    setSearchWord("");
+    setWikiMeaning("");
+    setCustomTitle("");
+    setCustomAuthor("");
+    setAozoraUrl("");
+    setAozoraLoadError("");
+
+    isRestoringProgressRef.current = true;
+    isInitialProgressResolvedRef.current = false;
+
+    const savedProgress = await loadReadingProgressFromFirestore(
+      nextWork.workId,
+    );
+
+    if (savedProgress) {
+      pendingResumeProgressRef.current = savedProgress;
+      pendingFreshStartWorkIdRef.current = null;
+      setLayoutMode(savedProgress.layoutMode);
+      layoutModeRef.current = savedProgress.layoutMode;
+    } else {
+      pendingResumeProgressRef.current = null;
+      pendingFreshStartWorkIdRef.current = nextWork.workId;
+    }
+
+    setLoadMode("preset");
+    setSelectedStory(storyKey);
+    selectedStoryRef.current = storyKey;
+    setCurrentWork(nextWork);
+    currentWorkRef.current = nextWork;
   };
 
   const handleOpenReadingProgress = async (progress: UserReadingProgress) => {
@@ -1825,6 +2424,7 @@ export default function Home() {
     const activeWork = currentWorkRef.current;
 
     saveLastReadingState(
+      authUser?.uid ?? "",
       activeWork,
       activeWork.type === "preset" ? selectedStoryRef.current : "",
       layoutModeRef.current,
@@ -1838,6 +2438,7 @@ export default function Home() {
     // 選択中プリセット作品へ誤保存しない。
     if (currentWorkRef.current.type === "preset") {
       writeReadingProgress(
+        authUser?.uid ?? "",
         selectedStoryRef.current,
         layoutModeRef.current,
         nextIndex,
@@ -1906,6 +2507,7 @@ export default function Home() {
     // 登録済み作品だけ、作品別のlocalStorageにも同じ正確な位置を保存する。
     if (currentWorkRef.current.type === "preset") {
       writeReadingProgress(
+        authUser?.uid ?? "",
         selectedStoryRef.current,
         targetLayoutMode,
         safeIndex,
@@ -1943,6 +2545,7 @@ export default function Home() {
 
           const activeWork = currentWorkRef.current;
           saveLastReadingState(
+            authUser?.uid ?? "",
             activeWork,
             activeWork.type === "preset" ? selectedStoryRef.current : "",
             targetLayoutMode,
@@ -1963,6 +2566,91 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (!authUser || !sessionChecked || !sessionIdRef.current) return;
+
+    const updateSession = async () => {
+      const sessionId = sessionIdRef.current;
+      if (!sessionId) return;
+
+      try {
+        const sessionDocRef = doc(db, "activeSessions", authUser.uid);
+        const sessionSnap = await getDoc(sessionDocRef);
+
+        if (
+          !sessionSnap.exists() ||
+          sessionSnap.data().sessionId !== sessionId
+        ) {
+          return;
+        }
+
+        await setDoc(
+          sessionDocRef,
+          {
+            userId: authUser.uid,
+            sessionId,
+            updatedAt: Date.now(),
+          },
+          { merge: true },
+        );
+      } catch (error) {
+        console.error("セッション更新失敗", error);
+      }
+    };
+
+    void updateSession();
+
+    const intervalId = window.setInterval(() => {
+      void updateSession();
+    }, 60 * 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [authUser, sessionChecked]);
+
+  useEffect(() => {
+    if (!authUser || !currentGroup) return;
+
+    const updateGroupHeartbeat = async () => {
+      const groupRef = doc(db, "groups", currentGroup.id);
+
+      try {
+        await runTransaction(db, async (transaction) => {
+          const groupSnap = await transaction.get(groupRef);
+
+          if (!groupSnap.exists()) return;
+
+          const group = normalizeReadingGroup(
+            groupSnap.data() as Record<string, unknown>,
+            groupSnap.id,
+          );
+
+          if (!group.memberIds.includes(authUser.uid)) return;
+
+          transaction.update(groupRef, {
+            memberLastSeen: {
+              ...group.memberLastSeen,
+              [authUser.uid]: Date.now(),
+            },
+          });
+        });
+      } catch (error) {
+        console.error("グループheartbeat更新失敗", error);
+      }
+    };
+
+    void updateGroupHeartbeat();
+
+    const intervalId = window.setInterval(() => {
+      void updateGroupHeartbeat();
+    }, GROUP_HEARTBEAT_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [authUser, currentGroup?.id]);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setAuthUser(user);
       setAuthChecked(true);
@@ -1970,6 +2658,12 @@ export default function Home() {
       if (!user) {
         setUsername("");
         usernameRef.current = "";
+        setParticipantId("");
+        setJoinedAt(0);
+        setUserReadingProgresses([]);
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = null;
+        didLoadLastReadingStateRef.current = false;
         return;
       }
 
@@ -1993,13 +2687,130 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!authChecked || !authUser) {
+      setCurrentGroup(null);
+      return;
+    }
+
+    const restoreCurrentGroup = async () => {
+      const storageKey = `retaCurrentGroup_${authUser.uid}`;
+      const storedGroupId = window.localStorage.getItem(storageKey);
+
+      if (!storedGroupId) {
+        setCurrentGroup(null);
+        return;
+      }
+
+      try {
+        const groupSnap = await getDoc(doc(db, "groups", storedGroupId));
+
+        if (!groupSnap.exists()) {
+          window.localStorage.removeItem(storageKey);
+          setCurrentGroup(null);
+          return;
+        }
+
+        const group = normalizeReadingGroup(
+          groupSnap.data() as Record<string, unknown>,
+          groupSnap.id,
+        );
+
+        if (!group.memberIds.includes(authUser.uid)) {
+          window.localStorage.removeItem(storageKey);
+          setCurrentGroup(null);
+          setGroupCode("");
+          return;
+        }
+
+        setCurrentGroup(group);
+        setGroupCode(group.code);
+      } catch (error) {
+        console.error("グループ復元失敗", error);
+        setCurrentGroup(null);
+      }
+    };
+
+    void restoreCurrentGroup();
+  }, [authChecked, authUser]);
+
+  useEffect(() => {
+    if (!authChecked || !authUser || isAuthLoading) return;
+    if (sessionChecked || sessionIdRef.current) return;
+
+    const restoreBrowserSession = async () => {
+      const sessionStorageKey = `retaActiveSession_${authUser.uid}`;
+      const storedSessionId = window.localStorage.getItem(sessionStorageKey);
+
+      // 単一セッション機能導入前から残っているログイン状態。
+      // 所有しているセッションを確認できないため、一度ログアウトして再ログインしてもらう。
+      if (!storedSessionId) {
+        setAuthError(
+          "ログイン状態を更新しました。もう一度ログインしてください",
+        );
+        await signOut(auth);
+        return;
+      }
+
+      try {
+        const sessionDocRef = doc(db, "activeSessions", authUser.uid);
+        const sessionSnap = await getDoc(sessionDocRef);
+        const now = Date.now();
+        const sessionTimeoutMs = 5 * 60 * 1000;
+
+        if (sessionSnap.exists()) {
+          const data = sessionSnap.data();
+          const existingSessionId =
+            typeof data.sessionId === "string" ? data.sessionId : "";
+          const updatedAt = Number(data.updatedAt ?? 0);
+          const isActive =
+            existingSessionId !== "" &&
+            now - updatedAt < sessionTimeoutMs;
+
+          if (isActive && existingSessionId !== storedSessionId) {
+            window.localStorage.removeItem(sessionStorageKey);
+            setAuthError(
+              "このアカウントは現在、ほかのブラウザまたは端末で利用中です。先にログアウトしてください",
+            );
+            await signOut(auth);
+            return;
+          }
+        }
+
+        await setDoc(
+          sessionDocRef,
+          {
+            userId: authUser.uid,
+            sessionId: storedSessionId,
+            updatedAt: now,
+          },
+          { merge: true },
+        );
+
+        sessionIdRef.current = storedSessionId;
+        setSessionChecked(true);
+      } catch (error) {
+        console.error("ブラウザセッションの復元失敗", error);
+        setAuthError("ログイン状態の確認に失敗しました");
+        await signOut(auth);
+      }
+    };
+
+    void restoreBrowserSession();
+  }, [authChecked, authUser, sessionChecked, isAuthLoading]);
+
+  useEffect(() => {
+    if (!authChecked) return;
+    if (didLoadLastReadingStateRef.current) return;
+
     if ("scrollRestoration" in window.history) {
       window.history.scrollRestoration = "manual";
     }
 
     refreshStoryProgressSummaries();
 
-    const lastState = loadLastReadingState();
+    const lastState = authUser
+      ? loadLastReadingState(authUser.uid)
+      : null;
 
     if (lastState) {
       setLayoutMode(lastState.layoutMode);
@@ -2099,7 +2910,7 @@ export default function Home() {
     setRecentAozoraBooks(loadRecentAozoraBooksFromStorage());
 
     didLoadLastReadingStateRef.current = true;
-  }, []);
+  }, [authChecked, authUser]);
 
   useEffect(() => {
     if (!authChecked || !authUser) return;
@@ -2111,6 +2922,27 @@ export default function Home() {
   useEffect(() => {
     currentParagraphIndexRef.current = currentParagraphIndex;
   }, [currentParagraphIndex]);
+
+  // 現在開いている作品を参加者情報へ即時反映する。
+  // 同じ作品を読んでいる参加者だけをリアルタイム表示するために使用する。
+  useEffect(() => {
+    if (!authUser || !participantId || !joinedAt) return;
+    if (document.visibilityState !== "visible") return;
+
+    void setDoc(
+      doc(db, "participants", participantId),
+      {
+        name: usernameRef.current || "名前なし",
+        userId: authUser.uid,
+        workId: currentWork.workId,
+        isReading: true,
+        paragraphIndex: currentParagraphIndexRef.current,
+        joinedAt,
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    );
+  }, [participantId, joinedAt, authUser?.uid, currentWork.workId]);
 
   useEffect(() => {
     usernameRef.current = username;
@@ -2140,14 +2972,18 @@ export default function Home() {
     setCurrentWork(presetWork);
     currentWorkRef.current = presetWork;
 
-    void setDoc(
-      doc(db, "works", presetWork.workId),
-      {
-        ...presetWork,
-        updatedAt: Date.now(),
-      },
-      { merge: true },
-    );
+    if (authUser) {
+      void setDoc(
+        doc(db, "works", presetWork.workId),
+        {
+          ...presetWork,
+          updatedAt: Date.now(),
+        },
+        { merge: true },
+      ).catch((error) => {
+        console.error("作品情報の保存失敗", error);
+      });
+    }
 
     const requestId = textLoadRequestIdRef.current + 1;
     textLoadRequestIdRef.current = requestId;
@@ -2192,7 +3028,7 @@ export default function Home() {
     };
 
     loadText();
-  }, [selectedStory, loadMode]);
+  }, [selectedStory, loadMode, authUser]);
 
   useEffect(() => {
     if (readingUnits.length === 0) return;
@@ -2221,6 +3057,7 @@ export default function Home() {
           window.setTimeout(
             () => {
               writeReadingProgress(
+                authUser?.uid ?? "",
                 selectedStoryRef.current,
                 layoutMode,
                 targetIndex,
@@ -2269,6 +3106,26 @@ export default function Home() {
       return;
     }
 
+    const pendingFreshStartWorkId = pendingFreshStartWorkIdRef.current;
+
+    if (
+      pendingFreshStartWorkId &&
+      pendingFreshStartWorkId === currentWorkRef.current.workId
+    ) {
+      pendingFreshStartWorkIdRef.current = null;
+
+      resetToBeginning(layoutMode);
+      lastStableParagraphIndexRef.current = 0;
+
+      window.setTimeout(() => {
+        isRestoringProgressRef.current = false;
+        isProgrammaticScrollRef.current = false;
+        isInitialProgressResolvedRef.current = true;
+      }, 350);
+
+      return;
+    }
+
     // URL作品を新しく開いた場合は、選択中プリセット作品のlocalStorageを
     // 誤って適用しない。履歴から開いた場合は上のpendingResumeProgressで復元済み。
     if (currentWorkRef.current.type === "url") {
@@ -2284,6 +3141,7 @@ export default function Home() {
     }
 
     const savedProgress = loadReadingProgressFromStorage(
+      authUser?.uid ?? "",
       selectedStory,
       layoutMode,
     );
@@ -2311,22 +3169,45 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    const q = query(collection(db, "participants"));
+    if (!currentGroup) {
+      setParticipants([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "participants"),
+      where("groupId", "==", currentGroup.id),
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((docData) =>
-        normalizeParticipant(docData.data(), docData.id),
-      );
+      const data = snapshot.docs
+        .map((docData) =>
+          normalizeParticipant(docData.data(), docData.id),
+        )
+        .filter((participant) =>
+          currentGroup.memberIds.includes(participant.id),
+        );
 
       setParticipants(data);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentGroup]);
 
   useEffect(() => {
     const handleLeave = () => {
       isPageLeavingRef.current = true;
+
+      if (authUser && participantId) {
+        void setDoc(
+          doc(db, "participants", participantId),
+          {
+            isReading: false,
+            updatedAt: Date.now(),
+          },
+          { merge: true },
+        );
+      }
 
       // 読み込み・復元途中の値を終了時に保存しない。
       if (Date.now() < restoreGuardUntilRef.current) return;
@@ -2347,6 +3228,7 @@ export default function Home() {
       // localStorageはプリセット作品だけに使う。
       if (currentWorkRef.current.type === "preset") {
         writeReadingProgress(
+          authUser?.uid ?? "",
           selectedStoryRef.current,
           layoutModeRef.current,
           stableIndex,
@@ -2369,6 +3251,27 @@ export default function Home() {
         handleLeave();
       } else {
         isPageLeavingRef.current = false;
+
+        if (authUser && participantId) {
+          const activeWork =
+            currentWorkRef.current ??
+            getFallbackCurrentWork(selectedStoryRef.current);
+
+          void setDoc(
+            doc(db, "participants", participantId),
+            {
+              name: usernameRef.current || "名前なし",
+              userId: authUser.uid,
+              groupId: currentGroup?.id ?? "",
+              workId: activeWork.workId,
+              isReading: true,
+              paragraphIndex: currentParagraphIndexRef.current,
+              joinedAt: joinedAt || Date.now(),
+              updatedAt: Date.now(),
+            },
+            { merge: true },
+          );
+        }
       }
     };
 
@@ -2382,10 +3285,18 @@ export default function Home() {
       window.removeEventListener("beforeunload", handleLeave);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [participantId]);
+  }, [participantId, currentGroup]);
 
   useEffect(() => {
-    const q = query(collection(db, "reactions"));
+    if (!currentGroup) {
+      setReactions([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "reactions"),
+      where("groupId", "==", currentGroup.id),
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((docData) =>
@@ -2396,7 +3307,7 @@ export default function Home() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentGroup]);
 
   useEffect(() => {
     if (!authUser) {
@@ -2476,13 +3387,20 @@ export default function Home() {
     nextName: string,
     nextParagraphIndex: number,
   ) => {
-    if (!participantId || !joinedAt) return;
+    if (!authUser || !participantId || !joinedAt) return;
+
+    const activeWork =
+      currentWorkRef.current ??
+      getFallbackCurrentWork(selectedStoryRef.current);
 
     await setDoc(
       doc(db, "participants", participantId),
       {
         name: nextName || usernameRef.current || "名前なし",
-        userId: authUser?.uid ?? participantId,
+        userId: authUser.uid,
+        groupId: currentGroup?.id ?? "",
+        workId: activeWork.workId,
+        isReading: true,
         paragraphIndex: nextParagraphIndex,
         joinedAt,
         updatedAt: Date.now(),
@@ -2493,6 +3411,10 @@ export default function Home() {
 
   const updateLocalParticipant = (nextParagraphIndex: number) => {
     if (!participantId) return;
+
+    const activeWork =
+      currentWorkRef.current ??
+      getFallbackCurrentWork(selectedStoryRef.current);
 
     setParticipants((prev) => {
       const exists = prev.some(
@@ -2505,6 +3427,9 @@ export default function Home() {
           {
             id: participantId,
             name: usernameRef.current || "名前なし",
+            groupId: currentGroup?.id ?? "",
+            workId: activeWork.workId,
+            isReading: true,
             paragraphIndex: nextParagraphIndex,
             joinedAt: joinedAt || Date.now(),
             updatedAt: Date.now(),
@@ -2517,6 +3442,9 @@ export default function Home() {
           ? {
               ...participant,
               name: usernameRef.current || participant.name,
+              groupId: currentGroup?.id ?? participant.groupId,
+              workId: activeWork.workId,
+              isReading: true,
               paragraphIndex: nextParagraphIndex,
               updatedAt: Date.now(),
             }
@@ -2845,8 +3773,11 @@ export default function Home() {
       currentWorkRef.current ??
       getFallbackCurrentWork(selectedStoryRef.current);
 
+    if (!currentGroup) return;
+
     await addDoc(collection(db, "reactions"), {
       storyKey: selectedStoryRef.current,
+      groupId: currentGroup.id,
       workId: activeWork.workId,
       workTitle: activeWork.title,
       workAuthor: activeWork.author,
@@ -3053,6 +3984,16 @@ export default function Home() {
     );
   }
 
+  if (authUser && !sessionChecked) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8]">
+        <p className="text-sm font-bold text-gray-500">
+          ログイン状態を確認しています...
+        </p>
+      </main>
+    );
+  }
+
   if (!authUser) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8] px-4">
@@ -3138,15 +4079,168 @@ export default function Home() {
     );
   }
 
+  if (!currentGroup) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8] px-4 py-8">
+        <div className="w-full max-w-2xl rounded-[2rem] border border-[#eee3d2] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold tracking-[0.3em] text-[#b98234]">
+                ReTA
+              </p>
+              <h1 className="mt-3 text-3xl font-bold text-gray-950">
+                グループを選択
+              </h1>
+              <p className="mt-2 text-sm leading-relaxed text-gray-500">
+                新しいグループを作るか、6桁の参加コードを入力してください。
+                1つのグループには最大3人まで参加できます。
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-2xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-500 transition hover:border-gray-300 hover:text-gray-900"
+            >
+              ログアウト
+            </button>
+          </div>
+
+          <div className="mt-8 grid gap-6 md:grid-cols-2">
+            <section className="rounded-3xl border border-[#eee3d2] bg-[#fffaf0] p-5">
+              <p className="text-xs font-bold tracking-[0.18em] text-[#b98234]">
+                CREATE GROUP
+              </p>
+              <h2 className="mt-2 text-xl font-bold text-gray-900">
+                新しいグループを作る
+              </h2>
+
+              <input
+                value={groupName}
+                onChange={(event) => {
+                  setGroupName(event.target.value);
+                  setGroupError("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleCreateGroup();
+                  }
+                }}
+                placeholder="グループ名"
+                className="mt-5 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+              />
+
+              <button
+                type="button"
+                onClick={() => void handleCreateGroup()}
+                className="mt-3 w-full rounded-2xl bg-gray-900 px-4 py-3 text-sm font-bold text-white"
+              >
+                グループを作成
+              </button>
+            </section>
+
+            <section className="rounded-3xl border border-gray-200 bg-white p-5">
+              <p className="text-xs font-bold tracking-[0.18em] text-gray-400">
+                JOIN GROUP
+              </p>
+              <h2 className="mt-2 text-xl font-bold text-gray-900">
+                参加コードで入る
+              </h2>
+
+              <input
+                value={groupCode}
+                onChange={(event) => {
+                  setGroupCode(event.target.value.toUpperCase());
+                  setGroupError("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleJoinGroup();
+                  }
+                }}
+                maxLength={6}
+                placeholder="6桁の参加コード"
+                className="mt-5 w-full rounded-2xl border border-gray-200 px-4 py-3 text-center text-lg font-bold tracking-[0.3em] uppercase outline-none focus:border-[#c79a53]"
+              />
+
+              <button
+                type="button"
+                onClick={() => void handleJoinGroup()}
+                className="mt-3 w-full rounded-2xl bg-[#c79a53] px-4 py-3 text-sm font-bold text-white"
+              >
+                グループに参加
+              </button>
+            </section>
+          </div>
+
+          {groupError && (
+            <p className="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-500">
+              {groupError}
+            </p>
+          )}
+
+          <div className="mt-6 rounded-2xl bg-gray-50 px-4 py-3 text-xs leading-relaxed text-gray-500">
+            {username || "利用者"}でログイン中
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main
       tabIndex={0}
       onKeyDown={handleReaderKeyDown}
-      className="min-h-screen bg-[#f5f1e8] px-4 py-6 outline-none"
+      className="min-h-screen bg-[#f5f1e8] px-2 pb-24 pt-2 outline-none sm:px-4 sm:pb-24 sm:pt-4 lg:py-6"
     >
       <div className="mx-auto max-w-7xl">
-        <header className="mb-5 rounded-[1.75rem] border border-[#e9e1d5] bg-white px-5 py-5 shadow-[0_12px_32px_rgba(30,41,59,0.06)] sm:px-7">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <header className="mb-3 rounded-2xl border border-[#e9e1d5] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(30,41,59,0.06)] lg:hidden">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[0.58rem] font-black tracking-[0.25em] text-[#a86f24]">
+                ReTA
+              </p>
+              <div className="mt-1 flex min-w-0 items-baseline gap-2">
+                <h1 className="truncate font-serif text-xl font-bold text-gray-950">
+                  {customTitle || stories[selectedStory].title}
+                </h1>
+                <span className="shrink-0 text-[0.68rem] font-bold text-gray-400">
+                  {customAuthor || stories[selectedStory].author}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setMobilePanel((current) =>
+                  current === "more" ? null : "more",
+                )
+              }
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fff7e8] text-lg font-black text-[#9a651f]"
+              aria-label="その他のメニュー"
+            >
+              ⋯
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5 text-[0.67rem] font-bold">
+            <span className="rounded-full bg-[#fff7e8] px-2.5 py-1.5 text-[#9a651f]">
+              👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}
+            </span>
+            <span className="rounded-full bg-[#fff7e8] px-2.5 py-1.5 text-[#9a651f]">
+              {currentGroup.name}
+            </span>
+            <span className="rounded-full border border-[#ead7b8] bg-white px-2.5 py-1.5 text-[#9a651f]">
+              {currentGroup.code}
+            </span>
+          </div>
+        </header>
+
+        <header className="mb-5 hidden rounded-[1.75rem] border border-[#e9e1d5] bg-white px-7 py-5 shadow-[0_12px_32px_rgba(30,41,59,0.06)] lg:block">
+          <div className="flex flex-col gap-3 sm:gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
               <div className="mb-3 flex items-center gap-3">
                 <span className="h-7 w-1 rounded-full bg-[#c79a53]" />
@@ -3156,7 +4250,7 @@ export default function Home() {
               </div>
 
               <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
-                <h1 className="font-serif text-3xl font-bold tracking-[-0.035em] text-gray-950 sm:text-4xl">
+                <h1 className="font-serif text-2xl font-bold tracking-[-0.035em] text-gray-950 sm:text-3xl lg:text-4xl">
                   {customTitle || stories[selectedStory].title}
                 </h1>
                 <p className="pb-1 text-sm font-semibold text-gray-500 sm:text-base">
@@ -3169,9 +4263,22 @@ export default function Home() {
               <span className="rounded-full bg-[#fff7e8] px-3 py-2 text-[#9a651f]">
                 👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}人参加
               </span>
+              <span className="rounded-full bg-[#fff7e8] px-3 py-2 text-[#9a651f]">
+                グループ：{currentGroup.name}
+              </span>
+              <span className="rounded-full border border-[#ead7b8] bg-white px-3 py-2 text-[#9a651f]">
+                参加コード：{currentGroup.code}
+              </span>
               <span className="rounded-full bg-gray-100 px-3 py-2 text-gray-600">
                 {username || "利用者"}でログイン中
               </span>
+              <button
+                type="button"
+                onClick={() => void handleLeaveGroup()}
+                className="rounded-full border border-[#ead7b8] bg-white px-3 py-2 text-[#9a651f] transition hover:bg-[#fffaf0]"
+              >
+                グループを退会
+              </button>
               <button
                 type="button"
                 onClick={handleLogout}
@@ -3275,14 +4382,9 @@ export default function Home() {
                   <select
                     value={selectedStory}
                     onChange={(event) => {
-                      setSelectedStory(event.target.value as StoryKey);
-                      setSelectedWord("");
-                      setSearchWord("");
-                      setWikiMeaning("");
-                      setCustomTitle("");
-                      setCustomAuthor("");
-                      setAozoraUrl("");
-                      setAozoraLoadError("");
+                      void handleSelectPresetStory(
+                        event.target.value as StoryKey,
+                      );
                     }}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#c79a53]"
                   >
@@ -3338,8 +4440,8 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
-          <section className="overflow-hidden rounded-[1.75rem] border border-[#e9e1d5] bg-[#fffdf8] shadow-[0_14px_34px_rgba(30,41,59,0.07)]">
+        <div className="grid gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+          <section className="overflow-hidden rounded-2xl border border-[#e9e1d5] bg-[#fffdf8] shadow-[0_14px_34px_rgba(30,41,59,0.07)] sm:rounded-[1.75rem]">
             <div className="border-b border-gray-100 px-5 py-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -3367,7 +4469,7 @@ export default function Home() {
             <div
               ref={readingAreaRef}
               onScroll={updateActiveUnitByCenter}
-              className={`relative h-[78vh] px-8 py-10 sm:px-12 lg:px-14 ${
+              className={`relative h-[calc(100dvh-11rem)] min-h-[420px] px-4 py-6 sm:h-[72vh] sm:px-8 sm:py-8 md:h-[74vh] md:px-10 lg:h-[78vh] lg:px-14 lg:py-10 ${
                 layoutMode === "horizontal"
                   ? "overflow-y-auto overflow-x-hidden"
                   : "overflow-x-auto overflow-y-hidden"
@@ -3382,7 +4484,7 @@ export default function Home() {
                     const isParagraphActive =
                       currentReadingUnit?.paragraphIndex === index;
 
-                    const readersInParagraph = admittedParticipants.filter(
+                    const readersInParagraph = visibleParticipants.filter(
                       (participant) => {
                         const readerUnit =
                           readingUnits[participant.paragraphIndex];
@@ -3457,7 +4559,7 @@ export default function Home() {
                     const isParagraphActive =
                       currentReadingUnit?.paragraphIndex === index;
 
-                    const readersInParagraph = admittedParticipants.filter(
+                    const readersInParagraph = visibleParticipants.filter(
                       (participant) => {
                         const readerUnit =
                           readingUnits[participant.paragraphIndex];
@@ -3529,7 +4631,7 @@ export default function Home() {
                               const isUnitActive =
                                 currentParagraphIndex === unit.unitIndex;
 
-                              const readersHere = admittedParticipants.filter(
+                              const readersHere = visibleParticipants.filter(
                                 (participant) =>
                                   participant.paragraphIndex === unit.unitIndex,
                               );
@@ -3597,7 +4699,7 @@ export default function Home() {
               </div>
 
               <div className="relative h-5 rounded-full bg-gray-200">
-                {admittedParticipants.map((participant) => {
+                {visibleParticipants.map((participant) => {
                   const percent = getMapPercent(
                     participant.paragraphIndex,
                     readingUnits.length,
@@ -3655,7 +4757,7 @@ export default function Home() {
             </div>
           </section>
 
-          <aside className="space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
+          <aside className="hidden space-y-4 lg:sticky lg:top-4 lg:block lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
             <div className="rounded-[1.5rem] border border-[#e9e1d5] bg-white p-4 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
@@ -3899,7 +5001,7 @@ export default function Home() {
                   <h2 className="mb-3 text-lg font-bold">参加者</h2>
 
                   <div className="space-y-3">
-                    {admittedParticipants.map((participant) => (
+                    {visibleParticipants.map((participant) => (
                       <div
                         key={participant.id}
                         className="rounded-2xl bg-gray-50 px-3 py-2 text-sm"
@@ -3989,6 +5091,514 @@ export default function Home() {
           </aside>
         </div>
       </div>
+
+      {mobilePanel && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            type="button"
+            aria-label="メニューを閉じる"
+            onClick={() => setMobilePanel(null)}
+            className="absolute inset-0 bg-black/25"
+          />
+
+          <div className="absolute inset-x-0 bottom-[4.9rem] mx-auto max-h-[70dvh] w-[calc(100%-1rem)] max-w-xl overflow-y-auto rounded-[1.6rem] border border-[#e9e1d5] bg-[#fffdf8] p-4 shadow-[0_-16px_50px_rgba(15,23,42,0.18)]">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-[0.6rem] font-black tracking-[0.22em] text-[#a86f24]">
+                  {mobilePanel === "controls"
+                    ? "READING CONTROL"
+                    : mobilePanel === "reaction"
+                      ? "REACTION"
+                      : "MORE"}
+                </p>
+                <h2 className="mt-1 text-lg font-black text-gray-950">
+                  {mobilePanel === "controls"
+                    ? "読書操作"
+                    : mobilePanel === "reaction"
+                      ? "リアクション"
+                      : "その他"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMobilePanel(null)}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-lg font-bold text-gray-500"
+              >
+                ×
+              </button>
+            </div>
+
+            {mobilePanel === "controls" && (
+              <div className="space-y-4">
+                <div>
+                  <p className="mb-2 text-xs font-black text-gray-500">
+                    読み方
+                  </p>
+                  <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setReaderMode("reading")}
+                      className={`rounded-lg px-3 py-3 text-sm font-bold ${
+                        readerMode === "reading"
+                          ? "bg-white text-gray-950 shadow-sm"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      一人読み
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReaderMode("shared")}
+                      className={`rounded-lg px-3 py-3 text-sm font-bold ${
+                        readerMode === "shared"
+                          ? "bg-white text-gray-950 shadow-sm"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      みんなと読む
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-black text-gray-500">
+                    レイアウト
+                  </p>
+                  <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
+                    {[
+                      ["normal", "通常段落"],
+                      ["grouped", "2文"],
+                      ["horizontal", "横書き"],
+                    ].map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() =>
+                          changeLayoutModeKeepingPosition(mode as LayoutMode)
+                        }
+                        className={`rounded-lg px-2 py-3 text-xs font-bold ${
+                          layoutMode === mode
+                            ? "bg-white text-gray-950 shadow-sm"
+                            : "text-gray-500"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-[#fff7e8] p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-black text-gray-800">
+                      オート読書
+                    </span>
+                    <span className="text-xs font-bold text-[#a86f24]">
+                      {isAutoScroll ? `${autoSpeed}px/秒` : "停止中"}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="45"
+                    step="1"
+                    value={isAutoScroll ? autoSpeed : 0}
+                    onChange={(event) => {
+                      const nextSpeed = Number(event.target.value);
+                      if (nextSpeed <= 0) {
+                        setIsAutoScroll(false);
+                        return;
+                      }
+                      setAutoSpeed(nextSpeed);
+                      setIsAutoScroll(true);
+                    }}
+                    className="w-full accent-[#d8a348]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleMarkReturnPoint}
+                    className="rounded-xl bg-gray-100 px-3 py-3 text-sm font-bold text-gray-700"
+                  >
+                    ここに戻る
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReturnToSavedIndex}
+                    disabled={returnIndex === null}
+                    className="rounded-xl bg-[#f3cf7a] px-3 py-3 text-sm font-bold text-gray-800 disabled:opacity-35"
+                  >
+                    元の位置へ
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {mobilePanel === "reaction" && (
+              <div>
+                {readerMode !== "shared" ? (
+                  <div className="rounded-2xl bg-gray-50 px-4 py-5 text-center">
+                    <p className="text-sm font-bold text-gray-600">
+                      「みんなと読む」に切り替えると
+                      <br />
+                      リアクションを送れます。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setReaderMode("shared")}
+                      className="mt-4 rounded-xl bg-[#f3cf7a] px-5 py-3 text-sm font-black text-gray-800"
+                    >
+                      みんなと読む
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-2xl bg-yellow-50 p-3">
+                      <p className="mb-2 text-xs font-bold text-gray-500">
+                        今の区切りにリアクション
+                      </p>
+
+                      <div className="mb-3 grid grid-cols-5 gap-2">
+                        {["👍", "😮", "😢", "❤️", "🤔"].map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => setReactionEmoji(emoji)}
+                            className={`rounded-xl py-3 text-xl ${
+                              reactionEmoji === emoji
+                                ? "bg-yellow-300"
+                                : "bg-white"
+                            }`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+
+                      <textarea
+                        value={reactionComment}
+                        onChange={(event) =>
+                          setReactionComment(event.target.value)
+                        }
+                        placeholder="コメントを書く"
+                        className="h-20 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={handleAddReaction}
+                        className="mt-2 w-full rounded-xl bg-yellow-300 px-4 py-3 text-sm font-black text-gray-800"
+                      >
+                        追加する
+                      </button>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {visibleReactions.length === 0 ? (
+                        <p className="rounded-xl bg-gray-50 px-3 py-4 text-center text-xs font-bold text-gray-400">
+                          まだリアクションはありません
+                        </p>
+                      ) : (
+                        visibleReactions.map((reaction, index) => (
+                          <div
+                            key={`${reaction.createdAt}-${index}`}
+                            className="rounded-xl bg-gray-50 px-3 py-2 text-sm"
+                          >
+                            <div className="font-bold">
+                              {reaction.participantName}：{reaction.emoji}
+                              <span className="ml-2 text-xs font-normal text-gray-400">
+                                {reaction.paragraphIndex + 1}区切り目
+                              </span>
+                            </div>
+                            {reaction.comment && (
+                              <div className="mt-1 text-gray-600">
+                                {reaction.comment}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {mobilePanel === "more" && (
+              <div className="space-y-4">
+                <div className="rounded-2xl bg-[#fff7e8] p-4">
+                  <p className="text-xs font-black text-[#a86f24]">
+                    GROUP
+                  </p>
+                  <p className="mt-1 font-black text-gray-900">
+                    {currentGroup.name}
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-gray-500">
+                    参加コード：{currentGroup.code}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {username || "利用者"}でログイン中
+                  </p>
+                </div>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-black text-gray-900">
+                    最近読んだ作品
+                  </h3>
+
+                  <div className="space-y-2">
+                    {userReadingProgresses.slice(0, 4).map((progress) => (
+                      <button
+                        key={progress.workId}
+                        type="button"
+                        onClick={() => {
+                          handleOpenReadingProgress(progress);
+                          setMobilePanel(null);
+                        }}
+                        className="flex w-full items-center justify-between rounded-xl border border-[#eee7dc] bg-white px-3 py-3 text-left"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-black text-gray-900">
+                            {progress.title}
+                          </span>
+                          <span className="block truncate text-xs font-bold text-gray-400">
+                            {progress.author}
+                          </span>
+                        </span>
+                        <span className="ml-3 shrink-0 text-xs font-black text-[#a86f24]">
+                          {progress.percent}%
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <details className="rounded-2xl border border-[#eee7dc] bg-white">
+                  <summary className="cursor-pointer list-none px-4 py-3 text-sm font-black text-gray-800">
+                    ＋ 別の作品を開く
+                  </summary>
+
+                  <div className="border-t border-[#eee7dc] p-4">
+                    <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoadMode("preset");
+                          setAozoraLoadError("");
+                        }}
+                        className={`rounded-lg px-3 py-2.5 text-xs font-bold ${
+                          loadMode === "preset"
+                            ? "bg-white text-gray-950 shadow-sm"
+                            : "text-gray-500"
+                        }`}
+                      >
+                        登録済み
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoadMode("url");
+                          setAozoraLoadError("");
+                        }}
+                        className={`rounded-lg px-3 py-2.5 text-xs font-bold ${
+                          loadMode === "url"
+                            ? "bg-white text-gray-950 shadow-sm"
+                            : "text-gray-500"
+                        }`}
+                      >
+                        青空文庫URL
+                      </button>
+                    </div>
+
+                    {loadMode === "preset" && (
+                      <select
+                        value={selectedStory}
+                        onChange={(event) => {
+                          void handleSelectPresetStory(
+                            event.target.value as StoryKey,
+                          );
+                          setMobilePanel(null);
+                        }}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none"
+                      >
+                        {Object.entries(stories).map(([key, story]) => (
+                          <option key={key} value={key}>
+                            {story.title}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {loadMode === "url" && (
+                      <div className="space-y-2">
+                        <input
+                          type="url"
+                          value={aozoraUrl}
+                          onChange={(event) => {
+                            setAozoraUrl(event.target.value);
+                            setAozoraLoadError("");
+                          }}
+                          placeholder="青空文庫の図書カードURL"
+                          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleLoadAozoraUrl();
+                          }}
+                          disabled={isLoadingAozora}
+                          className="w-full rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
+                        >
+                          {isLoadingAozora
+                            ? "読み込み中"
+                            : "この本を読む"}
+                        </button>
+                      </div>
+                    )}
+
+                    {aozoraLoadError && (
+                      <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-500">
+                        {aozoraLoadError}
+                      </p>
+                    )}
+                  </div>
+                </details>
+
+                <div>
+                  <h3 className="mb-2 text-sm font-black text-gray-900">
+                    用語検索
+                  </h3>
+                  <input
+                    type="text"
+                    value={searchWord}
+                    onChange={(event) => {
+                      const nextWord = event.target.value;
+                      setSearchWord(nextWord);
+                      setSelectedWord(nextWord);
+                    }}
+                    onBlur={() => fetchWikiMeaning(searchWord)}
+                    placeholder="調べたい言葉を入力"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm outline-none"
+                  />
+
+                  {searchWord && (
+                    <div className="mt-2 rounded-xl bg-gray-50 p-3">
+                      <p className="font-black text-gray-900">
+                        {selectedWord}
+                      </p>
+                      <p className="mt-1 text-sm leading-relaxed text-gray-600">
+                        {dictionary[searchWord] ||
+                          wikiMeaning ||
+                          (isSearchingMeaning
+                            ? "意味を調べています..."
+                            : "意味が見つかりませんでした")}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => void handleLeaveGroup()}
+                    className="rounded-xl border border-[#ead7b8] bg-white px-3 py-3 text-sm font-bold text-[#9a651f]"
+                  >
+                    グループを退会
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-bold text-gray-500"
+                  >
+                    ログアウト
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[#e7dfd3] bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.4rem)] pt-2 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
+        <div className="mx-auto grid max-w-xl grid-cols-4 gap-1">
+          <button
+            type="button"
+            onClick={() => setMobilePanel(null)}
+            className={`rounded-xl py-2 text-center ${
+              mobilePanel === null
+                ? "bg-[#fff7e8] text-[#9a651f]"
+                : "text-gray-400"
+            }`}
+          >
+            <span className="block text-lg">📖</span>
+            <span className="mt-0.5 block text-[0.62rem] font-black">
+              読書
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setMobilePanel((current) =>
+                current === "controls" ? null : "controls",
+              )
+            }
+            className={`rounded-xl py-2 text-center ${
+              mobilePanel === "controls"
+                ? "bg-[#fff7e8] text-[#9a651f]"
+                : "text-gray-400"
+            }`}
+          >
+            <span className="block text-lg">⚙️</span>
+            <span className="mt-0.5 block text-[0.62rem] font-black">
+              操作
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setMobilePanel((current) =>
+                current === "reaction" ? null : "reaction",
+              )
+            }
+            className={`rounded-xl py-2 text-center ${
+              mobilePanel === "reaction"
+                ? "bg-[#fff7e8] text-[#9a651f]"
+                : "text-gray-400"
+            }`}
+          >
+            <span className="block text-lg">😊</span>
+            <span className="mt-0.5 block text-[0.62rem] font-black">
+              反応
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setMobilePanel((current) =>
+                current === "more" ? null : "more",
+              )
+            }
+            className={`rounded-xl py-2 text-center ${
+              mobilePanel === "more"
+                ? "bg-[#fff7e8] text-[#9a651f]"
+                : "text-gray-400"
+            }`}
+          >
+            <span className="block text-lg">•••</span>
+            <span className="mt-0.5 block text-[0.62rem] font-black">
+              その他
+            </span>
+          </button>
+        </div>
+      </nav>
     </main>
   );
 }
