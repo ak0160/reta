@@ -17,10 +17,12 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
   runTransaction,
   setDoc,
+  where,
 } from "firebase/firestore";
 
 import {
@@ -31,9 +33,19 @@ import {
   type User,
 } from "firebase/auth";
 
+type ReadingGroup = {
+  id: string;
+  name: string;
+  code: string;
+  createdBy: string;
+  createdAt: number;
+  memberIds: string[];
+};
+
 type Participant = {
   id: string;
   name: string;
+  groupId: string;
   workId: string;
   isReading: boolean;
   paragraphIndex: number;
@@ -43,6 +55,7 @@ type Participant = {
 
 type Reaction = {
   storyKey: StoryKey | "";
+  groupId: string;
   workId?: string;
   workTitle?: string;
   workAuthor?: string;
@@ -468,6 +481,7 @@ function normalizeParticipant(
   return {
     id,
     name: typeof raw.name === "string" ? raw.name : "",
+    groupId: typeof raw.groupId === "string" ? raw.groupId : "",
     workId: typeof raw.workId === "string" ? raw.workId : "",
     isReading: raw.isReading === true,
     paragraphIndex: Number(raw.paragraphIndex ?? 0),
@@ -476,10 +490,39 @@ function normalizeParticipant(
   };
 }
 
+function createGroupCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+  return Array.from({ length: 6 }, () => {
+    return chars[Math.floor(Math.random() * chars.length)];
+  }).join("");
+}
+
+function normalizeReadingGroup(
+  raw: Record<string, unknown>,
+  id: string,
+): ReadingGroup {
+  return {
+    id,
+    name: typeof raw.name === "string" ? raw.name : "",
+    code: typeof raw.code === "string" ? raw.code : "",
+    createdBy: typeof raw.createdBy === "string" ? raw.createdBy : "",
+    createdAt: Number(raw.createdAt ?? 0),
+    memberIds: Array.isArray(raw.memberIds)
+      ? raw.memberIds.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : typeof raw.createdBy === "string" && raw.createdBy !== ""
+        ? [raw.createdBy]
+        : [],
+  };
+}
+
 function normalizeReaction(raw: Record<string, unknown>): Reaction {
   return {
     storyKey:
       typeof raw.storyKey === "string" ? (raw.storyKey as StoryKey) : "",
+    groupId: typeof raw.groupId === "string" ? raw.groupId : "",
     workId: typeof raw.workId === "string" ? raw.workId : undefined,
     workTitle: typeof raw.workTitle === "string" ? raw.workTitle : undefined,
     workAuthor: typeof raw.workAuthor === "string" ? raw.workAuthor : undefined,
@@ -1217,6 +1260,11 @@ export default function Home() {
   const [joinedAt, setJoinedAt] = useState(0);
   const [username, setUsername] = useState("");
 
+  const [currentGroup, setCurrentGroup] = useState<ReadingGroup | null>(null);
+  const [groupName, setGroupName] = useState("");
+  const [groupCode, setGroupCode] = useState("");
+  const [groupError, setGroupError] = useState("");
+
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [userReadingProgresses, setUserReadingProgresses] = useState<
@@ -1322,12 +1370,10 @@ export default function Home() {
 
       return (
         now - participant.updatedAt < ACTIVE_LIMIT_MS &&
-        participant.name.trim() !== "" &&
-        participant.workId === currentWork.workId &&
-        participant.isReading
+        participant.name.trim() !== ""
       );
     });
-  }, [participants, participantId, currentWork.workId]);
+  }, [participants, participantId]);
 
   const admittedParticipants = useMemo(() => {
     const self = activeParticipants.find(
@@ -1345,6 +1391,14 @@ export default function Home() {
     return [self, ...others].slice(0, MAX_PARTICIPANTS);
   }, [activeParticipants, participantId]);
 
+  const visibleParticipants = useMemo(() => {
+    return admittedParticipants.filter(
+      (participant) =>
+        participant.workId === currentWork.workId &&
+        participant.isReading,
+    );
+  }, [admittedParticipants, currentWork.workId]);
+
   const isAdmitted = useMemo(() => {
     return admittedParticipants.some(
       (participant) => participant.id === participantId,
@@ -1352,7 +1406,12 @@ export default function Home() {
   }, [admittedParticipants, participantId]);
 
   const visibleReactions = useMemo(() => {
+    if (!currentGroup) {
+      return [];
+    }
+
     return reactions
+      .filter((reaction) => reaction.groupId === currentGroup.id)
       .filter((reaction) => {
         if (reaction.workId) {
           return reaction.workId === currentWork?.workId;
@@ -1363,12 +1422,229 @@ export default function Home() {
         );
       })
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [reactions, selectedStory, currentWork]);
+  }, [reactions, selectedStory, currentWork, currentGroup]);
 
   const createLoginEmail = (username: string) => {
     const safeName = username.trim().toLowerCase();
 
     return `${encodeURIComponent(safeName)}@shared-reading.local`;
+  };
+
+  const handleCreateGroup = async () => {
+    if (!authUser) {
+      setGroupError("ログインしてください");
+      return;
+    }
+
+    const trimmedName = groupName.trim();
+
+    if (!trimmedName) {
+      setGroupError("グループ名を入力してください");
+      return;
+    }
+
+    setGroupError("");
+
+    try {
+      let createdGroup: ReadingGroup | null = null;
+
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const code = createGroupCode();
+
+        const groupQuery = query(
+          collection(db, "groups"),
+          where("code", "==", code),
+        );
+
+        const groupSnapshot = await getDocs(groupQuery);
+
+        if (!groupSnapshot.empty) {
+          continue;
+        }
+
+        const groupRef = doc(collection(db, "groups"));
+        const group: ReadingGroup = {
+          id: groupRef.id,
+          name: trimmedName,
+          code,
+          createdBy: authUser.uid,
+          createdAt: Date.now(),
+          memberIds: [authUser.uid],
+        };
+
+        await setDoc(groupRef, {
+          name: group.name,
+          code: group.code,
+          createdBy: group.createdBy,
+          createdAt: group.createdAt,
+          memberIds: group.memberIds,
+        });
+
+        createdGroup = group;
+        break;
+      }
+
+      if (!createdGroup) {
+        setGroupError("グループコードの生成に失敗しました");
+        return;
+      }
+
+      if (participantId && joinedAt) {
+        const activeWork =
+          currentWorkRef.current ??
+          getFallbackCurrentWork(selectedStoryRef.current);
+
+        await setDoc(
+          doc(db, "participants", participantId),
+          {
+            name: usernameRef.current || "名前なし",
+            userId: authUser.uid,
+            groupId: createdGroup.id,
+            workId: activeWork.workId,
+            isReading: true,
+            paragraphIndex: currentParagraphIndex,
+            joinedAt,
+            updatedAt: Date.now(),
+          },
+          { merge: true },
+        );
+      }
+
+      window.localStorage.setItem(
+        `retaCurrentGroup_${authUser.uid}`,
+        createdGroup.id,
+      );
+
+      setCurrentGroup(createdGroup);
+      setGroupCode(createdGroup.code);
+    } catch (error) {
+      console.error("グループ作成失敗", error);
+      setGroupError("グループを作成できませんでした");
+    }
+  };
+
+  const handleJoinGroup = async () => {
+    if (!authUser) {
+      setGroupError("ログインしてください");
+      return;
+    }
+
+    const normalizedCode = groupCode.trim().toUpperCase();
+
+    if (!normalizedCode) {
+      setGroupError("参加コードを入力してください");
+      return;
+    }
+
+    setGroupError("");
+
+    try {
+      const groupQuery = query(
+        collection(db, "groups"),
+        where("code", "==", normalizedCode),
+      );
+
+      const groupSnapshot = await getDocs(groupQuery);
+
+      if (groupSnapshot.empty) {
+        setGroupError("この参加コードのグループは見つかりません");
+        return;
+      }
+
+      const groupDoc = groupSnapshot.docs[0];
+      const groupRef = doc(db, "groups", groupDoc.id);
+
+      const joinResult = await runTransaction(db, async (transaction) => {
+        const freshGroupSnap = await transaction.get(groupRef);
+
+        if (!freshGroupSnap.exists()) {
+          return {
+            status: "not-found" as const,
+            group: null,
+          };
+        }
+
+        const freshGroup = normalizeReadingGroup(
+          freshGroupSnap.data() as Record<string, unknown>,
+          freshGroupSnap.id,
+        );
+
+        const alreadyMember = freshGroup.memberIds.includes(authUser.uid);
+
+        if (
+          !alreadyMember &&
+          freshGroup.memberIds.length >= MAX_PARTICIPANTS
+        ) {
+          return {
+            status: "full" as const,
+            group: null,
+          };
+        }
+
+        const nextMemberIds = alreadyMember
+          ? freshGroup.memberIds
+          : [...freshGroup.memberIds, authUser.uid];
+
+        if (!alreadyMember) {
+          transaction.update(groupRef, {
+            memberIds: nextMemberIds,
+          });
+        }
+
+        return {
+          status: "ok" as const,
+          group: {
+            ...freshGroup,
+            memberIds: nextMemberIds,
+          },
+        };
+      });
+
+      if (joinResult.status === "full") {
+        setGroupError("このグループは3人参加しているため満員です");
+        return;
+      }
+
+      if (joinResult.status === "not-found" || !joinResult.group) {
+        setGroupError("このグループは見つかりません");
+        return;
+      }
+
+      const group = joinResult.group;
+
+      if (participantId && joinedAt) {
+        const activeWork =
+          currentWorkRef.current ??
+          getFallbackCurrentWork(selectedStoryRef.current);
+
+        await setDoc(
+          doc(db, "participants", participantId),
+          {
+            name: usernameRef.current || "名前なし",
+            userId: authUser.uid,
+            groupId: group.id,
+            workId: activeWork.workId,
+            isReading: true,
+            paragraphIndex: currentParagraphIndex,
+            joinedAt,
+            updatedAt: Date.now(),
+          },
+          { merge: true },
+        );
+      }
+
+      window.localStorage.setItem(
+        `retaCurrentGroup_${authUser.uid}`,
+        group.id,
+      );
+
+      setCurrentGroup(group);
+      setGroupCode(group.code);
+    } catch (error) {
+      console.error("グループ参加失敗", error);
+
+      setGroupError("グループに参加できませんでした");
+    }
   };
 
   const handleRegister = async () => {
@@ -1542,6 +1818,7 @@ export default function Home() {
 
     if (authUser) {
       window.localStorage.removeItem(`retaActiveSession_${authUser.uid}`);
+      window.localStorage.removeItem(`retaCurrentGroup_${authUser.uid}`);
     }
 
     sessionIdRef.current = "";
@@ -1549,6 +1826,52 @@ export default function Home() {
     setIsAutoScroll(false);
 
     await signOut(auth);
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!authUser || !currentGroup) return;
+
+    try {
+      const groupRef = doc(db, "groups", currentGroup.id);
+
+      await runTransaction(db, async (transaction) => {
+        const groupSnap = await transaction.get(groupRef);
+
+        if (!groupSnap.exists()) {
+          return;
+        }
+
+        const group = normalizeReadingGroup(
+          groupSnap.data() as Record<string, unknown>,
+          groupSnap.id,
+        );
+
+        const nextMemberIds = group.memberIds.filter(
+          (memberId) => memberId !== authUser.uid,
+        );
+
+        transaction.update(groupRef, {
+          memberIds: nextMemberIds,
+        });
+      });
+
+      if (participantId) {
+        await deleteDoc(doc(db, "participants", participantId));
+      }
+
+      window.localStorage.removeItem(
+        `retaCurrentGroup_${authUser.uid}`,
+      );
+
+      setCurrentGroup(null);
+      setGroupName("");
+      setGroupCode("");
+      setGroupError("");
+      setParticipants([]);
+    } catch (error) {
+      console.error("グループ退会失敗", error);
+      setGroupError("グループから退会できませんでした");
+    }
   };
 
   const resetToBeginning = (nextMode: LayoutMode = layoutMode) => {
@@ -2278,6 +2601,53 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!authChecked || !authUser) {
+      setCurrentGroup(null);
+      return;
+    }
+
+    const restoreCurrentGroup = async () => {
+      const storageKey = `retaCurrentGroup_${authUser.uid}`;
+      const storedGroupId = window.localStorage.getItem(storageKey);
+
+      if (!storedGroupId) {
+        setCurrentGroup(null);
+        return;
+      }
+
+      try {
+        const groupSnap = await getDoc(doc(db, "groups", storedGroupId));
+
+        if (!groupSnap.exists()) {
+          window.localStorage.removeItem(storageKey);
+          setCurrentGroup(null);
+          return;
+        }
+
+        const group = normalizeReadingGroup(
+          groupSnap.data() as Record<string, unknown>,
+          groupSnap.id,
+        );
+
+        if (!group.memberIds.includes(authUser.uid)) {
+          window.localStorage.removeItem(storageKey);
+          setCurrentGroup(null);
+          setGroupCode("");
+          return;
+        }
+
+        setCurrentGroup(group);
+        setGroupCode(group.code);
+      } catch (error) {
+        console.error("グループ復元失敗", error);
+        setCurrentGroup(null);
+      }
+    };
+
+    void restoreCurrentGroup();
+  }, [authChecked, authUser]);
+
+  useEffect(() => {
     if (!authChecked || !authUser || isAuthLoading) return;
     if (sessionChecked || sessionIdRef.current) return;
 
@@ -2713,18 +3083,30 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    const q = query(collection(db, "participants"));
+    if (!currentGroup) {
+      setParticipants([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "participants"),
+      where("groupId", "==", currentGroup.id),
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((docData) =>
-        normalizeParticipant(docData.data(), docData.id),
-      );
+      const data = snapshot.docs
+        .map((docData) =>
+          normalizeParticipant(docData.data(), docData.id),
+        )
+        .filter((participant) =>
+          currentGroup.memberIds.includes(participant.id),
+        );
 
       setParticipants(data);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentGroup]);
 
   useEffect(() => {
     const handleLeave = () => {
@@ -2794,6 +3176,7 @@ export default function Home() {
             {
               name: usernameRef.current || "名前なし",
               userId: authUser.uid,
+              groupId: currentGroup?.id ?? "",
               workId: activeWork.workId,
               isReading: true,
               paragraphIndex: currentParagraphIndexRef.current,
@@ -2816,10 +3199,18 @@ export default function Home() {
       window.removeEventListener("beforeunload", handleLeave);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [participantId]);
+  }, [participantId, currentGroup]);
 
   useEffect(() => {
-    const q = query(collection(db, "reactions"));
+    if (!currentGroup) {
+      setReactions([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "reactions"),
+      where("groupId", "==", currentGroup.id),
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((docData) =>
@@ -2830,7 +3221,7 @@ export default function Home() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentGroup]);
 
   useEffect(() => {
     if (!authUser) {
@@ -2921,6 +3312,7 @@ export default function Home() {
       {
         name: nextName || usernameRef.current || "名前なし",
         userId: authUser.uid,
+        groupId: currentGroup?.id ?? "",
         workId: activeWork.workId,
         isReading: true,
         paragraphIndex: nextParagraphIndex,
@@ -2949,6 +3341,7 @@ export default function Home() {
           {
             id: participantId,
             name: usernameRef.current || "名前なし",
+            groupId: currentGroup?.id ?? "",
             workId: activeWork.workId,
             isReading: true,
             paragraphIndex: nextParagraphIndex,
@@ -2963,6 +3356,7 @@ export default function Home() {
           ? {
               ...participant,
               name: usernameRef.current || participant.name,
+              groupId: currentGroup?.id ?? participant.groupId,
               workId: activeWork.workId,
               isReading: true,
               paragraphIndex: nextParagraphIndex,
@@ -3293,8 +3687,11 @@ export default function Home() {
       currentWorkRef.current ??
       getFallbackCurrentWork(selectedStoryRef.current);
 
+    if (!currentGroup) return;
+
     await addDoc(collection(db, "reactions"), {
       storyKey: selectedStoryRef.current,
+      groupId: currentGroup.id,
       workId: activeWork.workId,
       workTitle: activeWork.title,
       workAuthor: activeWork.author,
@@ -3596,6 +3993,116 @@ export default function Home() {
     );
   }
 
+  if (!currentGroup) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8] px-4 py-8">
+        <div className="w-full max-w-2xl rounded-[2rem] border border-[#eee3d2] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold tracking-[0.3em] text-[#b98234]">
+                ReTA
+              </p>
+              <h1 className="mt-3 text-3xl font-bold text-gray-950">
+                グループを選択
+              </h1>
+              <p className="mt-2 text-sm leading-relaxed text-gray-500">
+                新しいグループを作るか、6桁の参加コードを入力してください。
+                1つのグループには最大3人まで参加できます。
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-2xl border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-500 transition hover:border-gray-300 hover:text-gray-900"
+            >
+              ログアウト
+            </button>
+          </div>
+
+          <div className="mt-8 grid gap-6 md:grid-cols-2">
+            <section className="rounded-3xl border border-[#eee3d2] bg-[#fffaf0] p-5">
+              <p className="text-xs font-bold tracking-[0.18em] text-[#b98234]">
+                CREATE GROUP
+              </p>
+              <h2 className="mt-2 text-xl font-bold text-gray-900">
+                新しいグループを作る
+              </h2>
+
+              <input
+                value={groupName}
+                onChange={(event) => {
+                  setGroupName(event.target.value);
+                  setGroupError("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleCreateGroup();
+                  }
+                }}
+                placeholder="グループ名"
+                className="mt-5 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+              />
+
+              <button
+                type="button"
+                onClick={() => void handleCreateGroup()}
+                className="mt-3 w-full rounded-2xl bg-gray-900 px-4 py-3 text-sm font-bold text-white"
+              >
+                グループを作成
+              </button>
+            </section>
+
+            <section className="rounded-3xl border border-gray-200 bg-white p-5">
+              <p className="text-xs font-bold tracking-[0.18em] text-gray-400">
+                JOIN GROUP
+              </p>
+              <h2 className="mt-2 text-xl font-bold text-gray-900">
+                参加コードで入る
+              </h2>
+
+              <input
+                value={groupCode}
+                onChange={(event) => {
+                  setGroupCode(event.target.value.toUpperCase());
+                  setGroupError("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleJoinGroup();
+                  }
+                }}
+                maxLength={6}
+                placeholder="6桁の参加コード"
+                className="mt-5 w-full rounded-2xl border border-gray-200 px-4 py-3 text-center text-lg font-bold tracking-[0.3em] uppercase outline-none focus:border-[#c79a53]"
+              />
+
+              <button
+                type="button"
+                onClick={() => void handleJoinGroup()}
+                className="mt-3 w-full rounded-2xl bg-[#c79a53] px-4 py-3 text-sm font-bold text-white"
+              >
+                グループに参加
+              </button>
+            </section>
+          </div>
+
+          {groupError && (
+            <p className="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-500">
+              {groupError}
+            </p>
+          )}
+
+          <div className="mt-6 rounded-2xl bg-gray-50 px-4 py-3 text-xs leading-relaxed text-gray-500">
+            {username || "利用者"}でログイン中
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main
       tabIndex={0}
@@ -3627,9 +4134,22 @@ export default function Home() {
               <span className="rounded-full bg-[#fff7e8] px-3 py-2 text-[#9a651f]">
                 👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}人参加
               </span>
+              <span className="rounded-full bg-[#fff7e8] px-3 py-2 text-[#9a651f]">
+                グループ：{currentGroup.name}
+              </span>
+              <span className="rounded-full border border-[#ead7b8] bg-white px-3 py-2 text-[#9a651f]">
+                参加コード：{currentGroup.code}
+              </span>
               <span className="rounded-full bg-gray-100 px-3 py-2 text-gray-600">
                 {username || "利用者"}でログイン中
               </span>
+              <button
+                type="button"
+                onClick={() => void handleLeaveGroup()}
+                className="rounded-full border border-[#ead7b8] bg-white px-3 py-2 text-[#9a651f] transition hover:bg-[#fffaf0]"
+              >
+                グループを退会
+              </button>
               <button
                 type="button"
                 onClick={handleLogout}
@@ -3835,7 +4355,7 @@ export default function Home() {
                     const isParagraphActive =
                       currentReadingUnit?.paragraphIndex === index;
 
-                    const readersInParagraph = admittedParticipants.filter(
+                    const readersInParagraph = visibleParticipants.filter(
                       (participant) => {
                         const readerUnit =
                           readingUnits[participant.paragraphIndex];
@@ -3910,7 +4430,7 @@ export default function Home() {
                     const isParagraphActive =
                       currentReadingUnit?.paragraphIndex === index;
 
-                    const readersInParagraph = admittedParticipants.filter(
+                    const readersInParagraph = visibleParticipants.filter(
                       (participant) => {
                         const readerUnit =
                           readingUnits[participant.paragraphIndex];
@@ -3982,7 +4502,7 @@ export default function Home() {
                               const isUnitActive =
                                 currentParagraphIndex === unit.unitIndex;
 
-                              const readersHere = admittedParticipants.filter(
+                              const readersHere = visibleParticipants.filter(
                                 (participant) =>
                                   participant.paragraphIndex === unit.unitIndex,
                               );
@@ -4050,7 +4570,7 @@ export default function Home() {
               </div>
 
               <div className="relative h-5 rounded-full bg-gray-200">
-                {admittedParticipants.map((participant) => {
+                {visibleParticipants.map((participant) => {
                   const percent = getMapPercent(
                     participant.paragraphIndex,
                     readingUnits.length,
@@ -4352,7 +4872,7 @@ export default function Home() {
                   <h2 className="mb-3 text-lg font-bold">参加者</h2>
 
                   <div className="space-y-3">
-                    {admittedParticipants.map((participant) => (
+                    {visibleParticipants.map((participant) => (
                       <div
                         key={participant.id}
                         className="rounded-2xl bg-gray-50 px-3 py-2 text-sm"
