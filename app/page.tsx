@@ -19,6 +19,7 @@ import {
   getDoc,
   onSnapshot,
   query,
+  runTransaction,
   setDoc,
 } from "firebase/firestore";
 
@@ -33,6 +34,8 @@ import {
 type Participant = {
   id: string;
   name: string;
+  workId: string;
+  isReading: boolean;
   paragraphIndex: number;
   joinedAt: number;
   updatedAt: number;
@@ -211,8 +214,12 @@ function getFallbackCurrentWork(storyKey: StoryKey): CurrentWork {
   return createPresetWork(storyKey);
 }
 
-function getReadingProgressKey(storyKey: StoryKey, layoutMode: LayoutMode) {
-  return `${READING_PROGRESS_KEY_PREFIX}_${storyKey}_${layoutMode}`;
+function getReadingProgressKey(
+  userId: string,
+  storyKey: StoryKey,
+  layoutMode: LayoutMode,
+) {
+  return `${READING_PROGRESS_KEY_PREFIX}_${userId}_${storyKey}_${layoutMode}`;
 }
 
 function getDisplayPercent(index: number, count: number) {
@@ -224,6 +231,7 @@ function getDisplayPercent(index: number, count: number) {
 }
 
 function saveLastReadingState(
+  userId: string,
   work: CurrentWork,
   storyKey: StoryKey | "",
   layoutMode: LayoutMode,
@@ -232,7 +240,7 @@ function saveLastReadingState(
   scrollLeft: number,
   scrollTop: number,
 ) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !userId) return;
 
   const state: LastReadingState = {
     workType: work.type,
@@ -249,13 +257,18 @@ function saveLastReadingState(
     savedAt: Date.now(),
   };
 
-  localStorage.setItem(LAST_READING_STATE_KEY, JSON.stringify(state));
+  localStorage.setItem(
+    `${LAST_READING_STATE_KEY}_${userId}`,
+    JSON.stringify(state),
+  );
 }
 
-function loadLastReadingState() {
-  if (typeof window === "undefined") return null;
+function loadLastReadingState(userId: string) {
+  if (typeof window === "undefined" || !userId) return null;
 
-  const rawState = localStorage.getItem(LAST_READING_STATE_KEY);
+  const rawState = localStorage.getItem(
+    `${LAST_READING_STATE_KEY}_${userId}`,
+  );
   if (!rawState) return null;
 
   try {
@@ -299,6 +312,7 @@ function loadLastReadingState() {
 }
 
 function writeReadingProgress(
+  userId: string,
   storyKey: StoryKey,
   layoutMode: LayoutMode,
   currentParagraphIndex: number,
@@ -306,7 +320,7 @@ function writeReadingProgress(
   scrollLeft: number,
   scrollTop = 0,
 ) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !userId) return;
   if (readingUnitsLength <= 0) return;
 
   const safeIndex = Math.max(
@@ -325,20 +339,21 @@ function writeReadingProgress(
   };
 
   localStorage.setItem(
-    getReadingProgressKey(storyKey, layoutMode),
+    getReadingProgressKey(userId, storyKey, layoutMode),
     JSON.stringify(progress),
   );
 
 }
 
 function loadReadingProgressFromStorage(
+  userId: string,
   storyKey: StoryKey,
   layoutMode: LayoutMode,
 ) {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined" || !userId) return null;
 
   const rawProgress = localStorage.getItem(
-    getReadingProgressKey(storyKey, layoutMode),
+    getReadingProgressKey(userId, storyKey, layoutMode),
   );
 
   if (!rawProgress) return null;
@@ -357,12 +372,12 @@ function loadReadingProgressFromStorage(
   }
 }
 
-function loadProgressSummaryForStory(storyKey: StoryKey) {
+function loadProgressSummaryForStory(userId: string, storyKey: StoryKey) {
   if (typeof window === "undefined") return null;
 
   const summaries = (["normal", "grouped", "horizontal"] as LayoutMode[])
     .map((mode) => {
-      const progress = loadReadingProgressFromStorage(storyKey, mode);
+      const progress = loadReadingProgressFromStorage(userId, storyKey, mode);
       if (!progress) return null;
 
       const length = Math.max(1, Number(progress.readingUnitsLength || 1));
@@ -387,15 +402,15 @@ function loadProgressSummaryForStory(storyKey: StoryKey) {
   return summaries[0] ?? null;
 }
 
-function loadAllStoryProgressSummaries() {
-  if (typeof window === "undefined") {
+function loadAllStoryProgressSummaries(userId: string) {
+  if (typeof window === "undefined" || !userId) {
     return {} as Partial<Record<StoryKey, StoryProgressSummary>>;
   }
 
   return Object.keys(stories).reduce(
     (summaryMap, key) => {
       const storyKey = key as StoryKey;
-      const summary = loadProgressSummaryForStory(storyKey);
+      const summary = loadProgressSummaryForStory(userId, storyKey);
 
       if (summary) {
         summaryMap[storyKey] = summary;
@@ -405,6 +420,14 @@ function loadAllStoryProgressSummaries() {
     },
     {} as Partial<Record<StoryKey, StoryProgressSummary>>,
   );
+}
+
+function createSessionId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 function createParticipantId() {
@@ -1167,6 +1190,8 @@ export default function Home() {
   const [loginPassword, setLoginPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const sessionIdRef = useRef("");
 
   const [readerMode, setReaderMode] = useState<ReaderMode>("reading");
 
@@ -1237,6 +1262,7 @@ export default function Home() {
   const selectedStoryRef = useRef<StoryKey>("wagahai");
   const currentWorkRef = useRef<CurrentWork>(createPresetWork("wagahai"));
   const pendingResumeProgressRef = useRef<UserReadingProgress | null>(null);
+  const pendingFreshStartWorkIdRef = useRef<string | null>(null);
   const layoutModeRef = useRef<LayoutMode>("normal");
   const readingUnitsLengthRef = useRef(0);
   const didLoadLastReadingStateRef = useRef(false);
@@ -1416,10 +1442,71 @@ export default function Home() {
 
     setIsAuthLoading(true);
     setAuthError("");
+    setSessionChecked(false);
 
     try {
       const email = createLoginEmail(username);
-      await signInWithEmailAndPassword(auth, email, loginPassword);
+      const result = await signInWithEmailAndPassword(
+        auth,
+        email,
+        loginPassword,
+      );
+
+      const sessionDocRef = doc(db, "activeSessions", result.user.uid);
+      const now = Date.now();
+      const sessionTimeoutMs = 5 * 60 * 1000;
+      const sessionStorageKey = `retaActiveSession_${result.user.uid}`;
+      const storedSessionId = window.localStorage.getItem(sessionStorageKey);
+      const sessionId = storedSessionId || createSessionId();
+
+      const sessionAcquired = await runTransaction(db, async (transaction) => {
+        const sessionSnap = await transaction.get(sessionDocRef);
+
+        if (sessionSnap.exists()) {
+          const sessionData = sessionSnap.data();
+
+          const existingSessionId =
+            typeof sessionData.sessionId === "string"
+              ? sessionData.sessionId
+              : "";
+
+          const updatedAt = Number(sessionData.updatedAt ?? 0);
+
+          const isActive =
+            existingSessionId !== "" &&
+            now - updatedAt < sessionTimeoutMs;
+
+          if (isActive && existingSessionId !== sessionId) {
+            return false;
+          }
+        }
+
+        transaction.set(
+          sessionDocRef,
+          {
+            userId: result.user.uid,
+            sessionId,
+            updatedAt: now,
+          },
+          { merge: true },
+        );
+
+        return true;
+      });
+
+      if (!sessionAcquired) {
+        await signOut(auth);
+
+        setAuthError(
+          "このアカウントは現在、ほかのブラウザまたは端末で利用中です。先にログアウトしてください",
+        );
+
+        return;
+      }
+
+      sessionIdRef.current = sessionId;
+      window.localStorage.setItem(sessionStorageKey, sessionId);
+      setSessionChecked(true);
     } catch (error) {
       console.error(error);
       setAuthError("利用者名またはパスワードが違います");
@@ -1437,7 +1524,30 @@ export default function Home() {
       }
     }
 
+    if (authUser && sessionIdRef.current) {
+      try {
+        const sessionDocRef = doc(db, "activeSessions", authUser.uid);
+        const sessionSnap = await getDoc(sessionDocRef);
+
+        if (
+          sessionSnap.exists() &&
+          sessionSnap.data().sessionId === sessionIdRef.current
+        ) {
+          await deleteDoc(sessionDocRef);
+        }
+      } catch (error) {
+        console.error("ログアウト時のセッション削除失敗", error);
+      }
+    }
+
+    if (authUser) {
+      window.localStorage.removeItem(`retaActiveSession_${authUser.uid}`);
+    }
+
+    sessionIdRef.current = "";
+    setSessionChecked(false);
     setIsAutoScroll(false);
+
     await signOut(auth);
   };
 
@@ -1493,6 +1603,7 @@ export default function Home() {
     updateLocalParticipant(targetIndex);
 
     writeReadingProgress(
+      authUser?.uid ?? "",
       selectedStoryRef.current,
       layoutModeRef.current,
       currentParagraphIndexRef.current,
@@ -1505,7 +1616,9 @@ export default function Home() {
   };
 
   const refreshStoryProgressSummaries = () => {
-    setStoryProgressSummaries(loadAllStoryProgressSummaries());
+    setStoryProgressSummaries(
+      loadAllStoryProgressSummaries(authUser?.uid ?? ""),
+    );
   };
 
   const rememberRecentAozoraBook = (book: AozoraSearchBook) => {
@@ -1536,14 +1649,18 @@ export default function Home() {
     currentWorkRef.current = urlWork;
 
 
-    void setDoc(
-      doc(db, "works", urlWork.workId),
-      {
-        ...urlWork,
-        updatedAt: Date.now(),
-      },
-      { merge: true },
-    );
+    if (authUser) {
+      void setDoc(
+        doc(db, "works", urlWork.workId),
+        {
+          ...urlWork,
+          updatedAt: Date.now(),
+        },
+        { merge: true },
+      ).catch((error) => {
+        console.error("URL作品情報の保存失敗", error);
+      });
+    }
 
     const cleanedParagraphs = cleanAozoraText(
       loadedText.rawText,
@@ -1643,17 +1760,21 @@ export default function Home() {
         book.cardUrl || targetUrl,
       );
 
-      openLoadedAozoraText(loadedText, canonicalSourceUrl);
+      const workId = createUrlWorkId(canonicalSourceUrl);
+      const savedProgress = await loadReadingProgressFromFirestore(workId);
+
+      if (savedProgress) {
+        pendingResumeProgressRef.current = savedProgress;
+        pendingFreshStartWorkIdRef.current = null;
+        setLayoutMode(savedProgress.layoutMode);
+        layoutModeRef.current = savedProgress.layoutMode;
+      } else {
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = workId;
+      }
+
+      openLoadedAozoraText(loadedText, canonicalSourceUrl, true);
       setAozoraUrl(canonicalSourceUrl);
-      saveLastReadingState(
-        currentWorkRef.current,
-        "",
-        layoutModeRef.current,
-        0,
-        0,
-        0,
-        0,
-      );
       rememberRecentAozoraBook({
         ...book,
         id: createUrlWorkId(canonicalSourceUrl),
@@ -1695,17 +1816,21 @@ export default function Home() {
       const loadedText = await loadAozoraTextFromUrl(trimmedUrl);
       const canonicalSourceUrl = getCanonicalSourceUrl(trimmedUrl);
 
-      openLoadedAozoraText(loadedText, canonicalSourceUrl);
+      const workId = createUrlWorkId(canonicalSourceUrl);
+      const savedProgress = await loadReadingProgressFromFirestore(workId);
+
+      if (savedProgress) {
+        pendingResumeProgressRef.current = savedProgress;
+        pendingFreshStartWorkIdRef.current = null;
+        setLayoutMode(savedProgress.layoutMode);
+        layoutModeRef.current = savedProgress.layoutMode;
+      } else {
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = workId;
+      }
+
+      openLoadedAozoraText(loadedText, canonicalSourceUrl, true);
       setAozoraUrl(canonicalSourceUrl);
-      saveLastReadingState(
-        currentWorkRef.current,
-        "",
-        layoutModeRef.current,
-        0,
-        0,
-        0,
-        0,
-      );
 
       const recentBook: AozoraSearchBook = {
         id: createUrlWorkId(canonicalSourceUrl),
@@ -1731,6 +1856,91 @@ export default function Home() {
     } finally {
       setIsLoadingAozora(false);
     }
+  };
+
+  const loadReadingProgressFromFirestore = async (
+    workId: string,
+  ): Promise<UserReadingProgress | null> => {
+    if (!authUser || !workId) return null;
+
+    try {
+      const progressDocId = `${authUser.uid}_${workId}`;
+      const progressSnap = await getDoc(
+        doc(db, "readingProgress", progressDocId),
+      );
+
+      if (!progressSnap.exists()) {
+        return null;
+      }
+
+      const progress = normalizeUserReadingProgress(progressSnap.data());
+
+      if (
+        progress.userId !== authUser.uid ||
+        progress.workId !== workId ||
+        progress.readingUnitsLength <= 0
+      ) {
+        return null;
+      }
+
+      const safeIndex = Math.max(
+        0,
+        Math.min(
+          progress.currentParagraphIndex,
+          progress.readingUnitsLength - 1,
+        ),
+      );
+
+      return {
+        ...progress,
+        docId: progressSnap.id,
+        currentParagraphIndex: safeIndex,
+        percent: getDisplayPercent(
+          safeIndex,
+          progress.readingUnitsLength,
+        ),
+      };
+    } catch (error) {
+      console.error("Firestoreからの読書位置取得失敗", error);
+      return null;
+    }
+  };
+
+  const handleSelectPresetStory = async (storyKey: StoryKey) => {
+    const nextWork = createPresetWork(storyKey);
+
+    setIsAutoScroll(false);
+    setReturnIndex(null);
+    setSelectedWord("");
+    setSearchWord("");
+    setWikiMeaning("");
+    setCustomTitle("");
+    setCustomAuthor("");
+    setAozoraUrl("");
+    setAozoraLoadError("");
+
+    isRestoringProgressRef.current = true;
+    isInitialProgressResolvedRef.current = false;
+
+    const savedProgress = await loadReadingProgressFromFirestore(
+      nextWork.workId,
+    );
+
+    if (savedProgress) {
+      pendingResumeProgressRef.current = savedProgress;
+      pendingFreshStartWorkIdRef.current = null;
+      setLayoutMode(savedProgress.layoutMode);
+      layoutModeRef.current = savedProgress.layoutMode;
+    } else {
+      pendingResumeProgressRef.current = null;
+      pendingFreshStartWorkIdRef.current = nextWork.workId;
+    }
+
+    setLoadMode("preset");
+    setSelectedStory(storyKey);
+    selectedStoryRef.current = storyKey;
+    setCurrentWork(nextWork);
+    currentWorkRef.current = nextWork;
   };
 
   const handleOpenReadingProgress = async (progress: UserReadingProgress) => {
@@ -1847,6 +2057,7 @@ export default function Home() {
     const activeWork = currentWorkRef.current;
 
     saveLastReadingState(
+      authUser?.uid ?? "",
       activeWork,
       activeWork.type === "preset" ? selectedStoryRef.current : "",
       layoutModeRef.current,
@@ -1860,6 +2071,7 @@ export default function Home() {
     // 選択中プリセット作品へ誤保存しない。
     if (currentWorkRef.current.type === "preset") {
       writeReadingProgress(
+        authUser?.uid ?? "",
         selectedStoryRef.current,
         layoutModeRef.current,
         nextIndex,
@@ -1928,6 +2140,7 @@ export default function Home() {
     // 登録済み作品だけ、作品別のlocalStorageにも同じ正確な位置を保存する。
     if (currentWorkRef.current.type === "preset") {
       writeReadingProgress(
+        authUser?.uid ?? "",
         selectedStoryRef.current,
         targetLayoutMode,
         safeIndex,
@@ -1965,6 +2178,7 @@ export default function Home() {
 
           const activeWork = currentWorkRef.current;
           saveLastReadingState(
+            authUser?.uid ?? "",
             activeWork,
             activeWork.type === "preset" ? selectedStoryRef.current : "",
             targetLayoutMode,
@@ -1985,6 +2199,49 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (!authUser || !sessionChecked || !sessionIdRef.current) return;
+
+    const updateSession = async () => {
+      const sessionId = sessionIdRef.current;
+      if (!sessionId) return;
+
+      try {
+        const sessionDocRef = doc(db, "activeSessions", authUser.uid);
+        const sessionSnap = await getDoc(sessionDocRef);
+
+        if (
+          !sessionSnap.exists() ||
+          sessionSnap.data().sessionId !== sessionId
+        ) {
+          return;
+        }
+
+        await setDoc(
+          sessionDocRef,
+          {
+            userId: authUser.uid,
+            sessionId,
+            updatedAt: Date.now(),
+          },
+          { merge: true },
+        );
+      } catch (error) {
+        console.error("セッション更新失敗", error);
+      }
+    };
+
+    void updateSession();
+
+    const intervalId = window.setInterval(() => {
+      void updateSession();
+    }, 60 * 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [authUser, sessionChecked]);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setAuthUser(user);
       setAuthChecked(true);
@@ -1992,6 +2249,12 @@ export default function Home() {
       if (!user) {
         setUsername("");
         usernameRef.current = "";
+        setParticipantId("");
+        setJoinedAt(0);
+        setUserReadingProgresses([]);
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = null;
+        didLoadLastReadingStateRef.current = false;
         return;
       }
 
@@ -2015,13 +2278,83 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!authChecked || !authUser || isAuthLoading) return;
+    if (sessionChecked || sessionIdRef.current) return;
+
+    const restoreBrowserSession = async () => {
+      const sessionStorageKey = `retaActiveSession_${authUser.uid}`;
+      const storedSessionId = window.localStorage.getItem(sessionStorageKey);
+
+      // 単一セッション機能導入前から残っているログイン状態。
+      // 所有しているセッションを確認できないため、一度ログアウトして再ログインしてもらう。
+      if (!storedSessionId) {
+        setAuthError(
+          "ログイン状態を更新しました。もう一度ログインしてください",
+        );
+        await signOut(auth);
+        return;
+      }
+
+      try {
+        const sessionDocRef = doc(db, "activeSessions", authUser.uid);
+        const sessionSnap = await getDoc(sessionDocRef);
+        const now = Date.now();
+        const sessionTimeoutMs = 5 * 60 * 1000;
+
+        if (sessionSnap.exists()) {
+          const data = sessionSnap.data();
+          const existingSessionId =
+            typeof data.sessionId === "string" ? data.sessionId : "";
+          const updatedAt = Number(data.updatedAt ?? 0);
+          const isActive =
+            existingSessionId !== "" &&
+            now - updatedAt < sessionTimeoutMs;
+
+          if (isActive && existingSessionId !== storedSessionId) {
+            window.localStorage.removeItem(sessionStorageKey);
+            setAuthError(
+              "このアカウントは現在、ほかのブラウザまたは端末で利用中です。先にログアウトしてください",
+            );
+            await signOut(auth);
+            return;
+          }
+        }
+
+        await setDoc(
+          sessionDocRef,
+          {
+            userId: authUser.uid,
+            sessionId: storedSessionId,
+            updatedAt: now,
+          },
+          { merge: true },
+        );
+
+        sessionIdRef.current = storedSessionId;
+        setSessionChecked(true);
+      } catch (error) {
+        console.error("ブラウザセッションの復元失敗", error);
+        setAuthError("ログイン状態の確認に失敗しました");
+        await signOut(auth);
+      }
+    };
+
+    void restoreBrowserSession();
+  }, [authChecked, authUser, sessionChecked, isAuthLoading]);
+
+  useEffect(() => {
+    if (!authChecked) return;
+    if (didLoadLastReadingStateRef.current) return;
+
     if ("scrollRestoration" in window.history) {
       window.history.scrollRestoration = "manual";
     }
 
     refreshStoryProgressSummaries();
 
-    const lastState = loadLastReadingState();
+    const lastState = authUser
+      ? loadLastReadingState(authUser.uid)
+      : null;
 
     if (lastState) {
       setLayoutMode(lastState.layoutMode);
@@ -2121,7 +2454,7 @@ export default function Home() {
     setRecentAozoraBooks(loadRecentAozoraBooksFromStorage());
 
     didLoadLastReadingStateRef.current = true;
-  }, []);
+  }, [authChecked, authUser]);
 
   useEffect(() => {
     if (!authChecked || !authUser) return;
@@ -2137,14 +2470,14 @@ export default function Home() {
   // 現在開いている作品を参加者情報へ即時反映する。
   // 同じ作品を読んでいる参加者だけをリアルタイム表示するために使用する。
   useEffect(() => {
-    if (!participantId || !joinedAt) return;
+    if (!authUser || !participantId || !joinedAt) return;
     if (document.visibilityState !== "visible") return;
 
     void setDoc(
       doc(db, "participants", participantId),
       {
         name: usernameRef.current || "名前なし",
-        userId: authUser?.uid ?? participantId,
+        userId: authUser.uid,
         workId: currentWork.workId,
         isReading: true,
         paragraphIndex: currentParagraphIndexRef.current,
@@ -2268,6 +2601,7 @@ export default function Home() {
           window.setTimeout(
             () => {
               writeReadingProgress(
+                authUser?.uid ?? "",
                 selectedStoryRef.current,
                 layoutMode,
                 targetIndex,
@@ -2316,6 +2650,26 @@ export default function Home() {
       return;
     }
 
+    const pendingFreshStartWorkId = pendingFreshStartWorkIdRef.current;
+
+    if (
+      pendingFreshStartWorkId &&
+      pendingFreshStartWorkId === currentWorkRef.current.workId
+    ) {
+      pendingFreshStartWorkIdRef.current = null;
+
+      resetToBeginning(layoutMode);
+      lastStableParagraphIndexRef.current = 0;
+
+      window.setTimeout(() => {
+        isRestoringProgressRef.current = false;
+        isProgrammaticScrollRef.current = false;
+        isInitialProgressResolvedRef.current = true;
+      }, 350);
+
+      return;
+    }
+
     // URL作品を新しく開いた場合は、選択中プリセット作品のlocalStorageを
     // 誤って適用しない。履歴から開いた場合は上のpendingResumeProgressで復元済み。
     if (currentWorkRef.current.type === "url") {
@@ -2331,6 +2685,7 @@ export default function Home() {
     }
 
     const savedProgress = loadReadingProgressFromStorage(
+      authUser?.uid ?? "",
       selectedStory,
       layoutMode,
     );
@@ -2375,7 +2730,7 @@ export default function Home() {
     const handleLeave = () => {
       isPageLeavingRef.current = true;
 
-      if (participantId) {
+      if (authUser && participantId) {
         void setDoc(
           doc(db, "participants", participantId),
           {
@@ -2405,6 +2760,7 @@ export default function Home() {
       // localStorageはプリセット作品だけに使う。
       if (currentWorkRef.current.type === "preset") {
         writeReadingProgress(
+          authUser?.uid ?? "",
           selectedStoryRef.current,
           layoutModeRef.current,
           stableIndex,
@@ -2428,7 +2784,7 @@ export default function Home() {
       } else {
         isPageLeavingRef.current = false;
 
-        if (participantId) {
+        if (authUser && participantId) {
           const activeWork =
             currentWorkRef.current ??
             getFallbackCurrentWork(selectedStoryRef.current);
@@ -2437,7 +2793,7 @@ export default function Home() {
             doc(db, "participants", participantId),
             {
               name: usernameRef.current || "名前なし",
-              userId: authUser?.uid ?? participantId,
+              userId: authUser.uid,
               workId: activeWork.workId,
               isReading: true,
               paragraphIndex: currentParagraphIndexRef.current,
@@ -2554,7 +2910,7 @@ export default function Home() {
     nextName: string,
     nextParagraphIndex: number,
   ) => {
-    if (!participantId || !joinedAt) return;
+    if (!authUser || !participantId || !joinedAt) return;
 
     const activeWork =
       currentWorkRef.current ??
@@ -2564,7 +2920,7 @@ export default function Home() {
       doc(db, "participants", participantId),
       {
         name: nextName || usernameRef.current || "名前なし",
-        userId: authUser?.uid ?? participantId,
+        userId: authUser.uid,
         workId: activeWork.workId,
         isReading: true,
         paragraphIndex: nextParagraphIndex,
@@ -3145,6 +3501,16 @@ export default function Home() {
     );
   }
 
+  if (authUser && !sessionChecked) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8]">
+        <p className="text-sm font-bold text-gray-500">
+          ログイン状態を確認しています...
+        </p>
+      </main>
+    );
+  }
+
   if (!authUser) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8] px-4">
@@ -3367,14 +3733,9 @@ export default function Home() {
                   <select
                     value={selectedStory}
                     onChange={(event) => {
-                      setSelectedStory(event.target.value as StoryKey);
-                      setSelectedWord("");
-                      setSearchWord("");
-                      setWikiMeaning("");
-                      setCustomTitle("");
-                      setCustomAuthor("");
-                      setAozoraUrl("");
-                      setAozoraLoadError("");
+                      void handleSelectPresetStory(
+                        event.target.value as StoryKey,
+                      );
                     }}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#c79a53]"
                   >
