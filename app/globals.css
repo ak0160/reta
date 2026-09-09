@@ -415,3 +415,39 @@ rt {
     font-size: 1.6rem;
   }
 }
+/* Mobile / tablet bookmark visibility */
+@media (max-width: 1023px) {
+  .normal-marker-reader-badges {
+    top: -1.2rem !important;
+    right: 0.35rem !important;
+    left: auto !important;
+  }
+
+  .grouped-marker-reader-badges {
+    top: 0.35rem !important;
+    right: 0.35rem !important;
+    left: auto !important;
+  }
+
+  .horizontal-marker-reader-badges {
+    top: 0.35rem !important;
+    left: 0.35rem !important;
+    right: auto !important;
+  }
+
+  .reader-follow-badges {
+    max-width: calc(100% - 0.7rem);
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.2rem;
+    z-index: 20;
+  }
+
+  .reader-follow-badge {
+    max-width: 3.8rem;
+    min-height: 1.2rem;
+    padding: 0.15rem 0.35rem;
+    font-size: 0.6rem;
+    line-height: 1;
+  }
+}
