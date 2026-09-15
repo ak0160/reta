@@ -180,6 +180,18 @@ export default function ExperimentLogsPage() {
     void loadSessions();
   }, []);
 
+  const sessionsByUser = sessions.reduce<Record<string, ReadingSession[]>>(
+    (groups, session) => {
+      const username = session.username || "名前なし";
+      if (!groups[username]) {
+        groups[username] = [];
+      }
+      groups[username].push(session);
+      return groups;
+    },
+    {},
+  );
+
   const selectedSession =
     sessions.find((session) => session.id === selectedSessionId) ?? null;
 
@@ -306,8 +318,26 @@ export default function ExperimentLogsPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4">
-                {sessions.map((session) => (
+              <div className="grid gap-8">
+                {Object.entries(sessionsByUser).map(
+                  ([username, userSessions]) => (
+                    <section key={username}>
+                      <div className="mb-3 flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#fff7e8] text-sm font-bold text-[#9a651f]">
+                          {username.slice(0, 1)}
+                        </div>
+                        <div>
+                          <h2 className="text-base font-bold text-gray-900">
+                            {username}
+                          </h2>
+                          <p className="text-xs text-gray-400">
+                            {userSessions.length}件のセッション
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4">
+                        {userSessions.map((session) => (
                   <article
                     key={session.id}
                     onClick={() => void loadEvents(session.id)}
@@ -544,7 +574,11 @@ export default function ExperimentLogsPage() {
                       </div>
                     )}
                   </article>
-                ))}
+                        ))}
+                      </div>
+                    </section>
+                  ),
+                )}
               </div>
             </>
           )}
