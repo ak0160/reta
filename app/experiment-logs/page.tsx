@@ -200,23 +200,54 @@ export default function ExperimentLogsPage() {
       : null;
 
   const chartPoints =
-    sessionStartedAt !== undefined && positionEvents.length > 0
-      ? [
-          {
-            elapsedSeconds: 0,
-            percent: Math.max(
-              0,
-              Math.min(100, selectedSession?.startPercent ?? 0),
-            ),
-          },
-          ...positionEvents.map((event) => ({
-            elapsedSeconds: Math.max(
-              0,
-              ((event.createdAt ?? sessionStartedAt) - sessionStartedAt) / 1000,
-            ),
-            percent: Math.max(0, Math.min(100, event.percent ?? 0)),
-          })),
-        ]
+    sessionStartedAt !== undefined && selectedSession
+      ? (() => {
+          const points = [
+            {
+              elapsedSeconds: 0,
+              percent: Math.max(
+                0,
+                Math.min(100, selectedSession.startPercent ?? 0),
+              ),
+            },
+            ...positionEvents.map((event) => ({
+              elapsedSeconds: Math.max(
+                0,
+                ((event.createdAt ?? sessionStartedAt) - sessionStartedAt) / 1000,
+              ),
+              percent: Math.max(0, Math.min(100, event.percent ?? 0)),
+            })),
+          ];
+
+          const finalTime =
+            selectedSession.endedAt ??
+            lastPositionEvent?.createdAt ??
+            selectedSession.lastSeenAt ??
+            sessionStartedAt;
+
+          const finalPercent = selectedSession.endedAt
+            ? selectedSession.endPercent ?? selectedSession.startPercent ?? 0
+            : estimatedEndPercent ?? selectedSession.startPercent ?? 0;
+
+          const finalElapsedSeconds = Math.max(
+            0,
+            (finalTime - sessionStartedAt) / 1000,
+          );
+
+          const lastPoint = points[points.length - 1];
+
+          if (
+            finalElapsedSeconds > lastPoint.elapsedSeconds ||
+            finalPercent !== lastPoint.percent
+          ) {
+            points.push({
+              elapsedSeconds: finalElapsedSeconds,
+              percent: Math.max(0, Math.min(100, finalPercent)),
+            });
+          }
+
+          return points;
+        })()
       : [];
 
   const chartMaxSeconds = Math.max(

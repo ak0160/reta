@@ -3236,31 +3236,7 @@ if (readingSessionHiddenAtRef.current !== null) {
     readingUnitsLengthRef.current = readingUnits.length;
   }, [readingUnits.length]);
 
-  useEffect(() => {
-  if (!authUser) return;
-  if (readingUnits.length <= 0) return;
 
-  const timer = window.setInterval(() => {
-    if (readingSessionIdRef.current) {
-      window.clearInterval(timer);
-      return;
-    }
-
-    if (Date.now() < restoreGuardUntilRef.current) return;
-    if (isRestoringProgressRef.current) return;
-    if (!isInitialProgressResolvedRef.current) return;
-
-    void startReadingSession().catch((error) => {
-      console.error("読書セッション開始失敗", error);
-    });
-
-    window.clearInterval(timer);
-  }, 200);
-
-  return () => {
-    window.clearInterval(timer);
-  };
-}, [authUser?.uid, readingUnits.length, currentWork.workId]);
 useEffect(() => {
   if (!authUser) return;
   if (readingUnits.length <= 0) return;
@@ -3280,16 +3256,34 @@ useEffect(() => {
     readingSessionLastActiveAtRef.current = now;
 
     if (readingSessionIdRef.current) {
-  void setDoc(
-    doc(db, "readingSessions", readingSessionIdRef.current),
-    {
-      lastSeenAt: now,
-    },
-    { merge: true },
-  ).catch((error) => {
-    console.error("読書セッション生存確認更新失敗", error);
-  });
-}
+      const unitsLength = readingUnitsLengthRef.current;
+      const lastIndex =
+        unitsLength > 0
+          ? Math.max(
+              0,
+              Math.min(
+                currentParagraphIndexRef.current,
+                unitsLength - 1,
+              ),
+            )
+          : 0;
+      const lastPercent =
+        unitsLength > 0
+          ? getDisplayPercent(lastIndex, unitsLength)
+          : 0;
+
+      void setDoc(
+        doc(db, "readingSessions", readingSessionIdRef.current),
+        {
+          lastSeenAt: now,
+          lastParagraphIndex: lastIndex,
+          lastPercent,
+        },
+        { merge: true },
+      ).catch((error) => {
+        console.error("読書セッション生存確認更新失敗", error);
+      });
+    }
 
     void saveReadingEvent("position").catch((error) => {
       console.error("読書位置ログ保存失敗", error);
@@ -5214,6 +5208,33 @@ if (readingSessionIdRef.current) {
                   className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "shared" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
                   みんなと読む
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void startReadingSession().catch((error) => {
+                      console.error("読書セッション開始失敗", error);
+                    });
+                  }}
+                  disabled={Boolean(readingSessionIdRef.current)}
+                  className="rounded-xl bg-gray-900 px-3 py-3 text-xs font-bold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ▶ 読書開始
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void endReadingSession().catch((error) => {
+                      console.error("読書セッション終了失敗", error);
+                    });
+                  }}
+                  disabled={!readingSessionIdRef.current}
+                  className="rounded-xl border border-gray-300 bg-white px-3 py-3 text-xs font-bold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ■ 読書終了
                 </button>
               </div>
 
