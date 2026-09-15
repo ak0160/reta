@@ -2625,7 +2625,11 @@ if (readingSessionHiddenAtRef.current !== null) {
       { merge: true },
     );
 
-    await saveReadingEvent("reading_end");
+    try {
+      await saveReadingEvent("reading_end");
+    } catch (error) {
+      console.error("読書終了イベント保存失敗", error);
+    }
 
     readingSessionIdRef.current = null;
     readingSessionStartedAtRef.current = null;
