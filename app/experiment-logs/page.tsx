@@ -189,6 +189,16 @@ export default function ExperimentLogsPage() {
 
   const sessionStartedAt = selectedSession?.startedAt;
 
+  const lastPositionEvent =
+    positionEvents.length > 0
+      ? positionEvents[positionEvents.length - 1]
+      : null;
+
+  const estimatedEndPercent =
+    selectedSession && isStaleSession(selectedSession)
+      ? (lastPositionEvent?.percent ?? selectedSession.endPercent ?? 0)
+      : null;
+
   const chartPoints =
     sessionStartedAt !== undefined && positionEvents.length > 0
       ? [
@@ -330,7 +340,10 @@ export default function ExperimentLogsPage() {
                         </p>
                         <p className="mt-1 text-sm font-bold text-gray-700">
                           {session.startPercent ?? 0}% →{" "}
-                          {session.endPercent ?? 0}%
+                          {selectedSessionId === session.id &&
+                          estimatedEndPercent !== null
+                            ? `${estimatedEndPercent}%（推定）`
+                            : `${session.endPercent ?? 0}%`}
                         </p>
                       </div>
                     </div>
