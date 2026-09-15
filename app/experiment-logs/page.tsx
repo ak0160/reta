@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 
 type ReadingSession = {
@@ -14,6 +14,48 @@ type ReadingSession = {
   startPercent?: number;
   endPercent?: number;
   activeDurationMs?: number;
+};
+
+type ReadingEvent = {
+  id: string;
+  sessionId?: string;
+  type?: string;
+  createdAt?: number;
+  paragraphIndex?: number;
+  percent?: number;
+  layoutMode?: string;
+  groupId?: string;
+  reactionEmoji?: string;
+  reactionComment?: string;
+};
+
+const getEventLabel = (type?: string) => {
+  switch (type) {
+    case "reading_start":
+      return "読書開始";
+    case "reading_end":
+      return "読書終了";
+    case "position":
+      return "読書位置";
+    case "reaction":
+      return "リアクション";
+    case "visibility_hidden":
+      return "タブ離脱";
+    case "visibility_visible":
+      return "タブ復帰";
+    case "layout_change":
+      return "レイアウト変更";
+    case "auto_scroll_on":
+      return "自動スクロール ON";
+    case "auto_scroll_off":
+      return "自動スクロール OFF";
+    case "reader_mode_shared":
+      return "共有読みへ変更";
+    case "reader_mode_solo":
+      return "一人読みへ変更";
+    default:
+      return type || "不明なイベント";
+  }
 };
 
 const formatDateTime = (timestamp?: number | null) => {
@@ -45,8 +87,41 @@ const formatDuration = (durationMs?: number) => {
 
 export default function ExperimentLogsPage() {
   const [sessions, setSessions] = useState<ReadingSession[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [events, setEvents] = useState<ReadingEvent[]>([]);
+  const [isEventLoading, setIsEventLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const loadEvents = async (sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    setIsEventLoading(true);
+    setEvents([]);
+
+    try {
+      const eventQuery = query(
+        collection(db, "readingEvents"),
+        where("sessionId", "==", sessionId),
+      );
+
+      const snapshot = await getDocs(eventQuery);
+
+      const loadedEvents = snapshot.docs.map((document) => ({
+        id: document.id,
+        ...document.data(),
+      })) as ReadingEvent[];
+
+      loadedEvents.sort(
+        (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
+      );
+
+      setEvents(loadedEvents);
+    } catch (loadError) {
+      console.error("読書イベント取得失敗", loadError);
+    } finally {
+      setIsEventLoading(false);
+    }
+  };
 
   useEffect(() => {
     const loadSessions = async () => {
@@ -121,7 +196,8 @@ export default function ExperimentLogsPage() {
                 {sessions.map((session) => (
                   <article
                     key={session.id}
-                    className="rounded-3xl border border-[#eee3d2] bg-white p-5 shadow-sm"
+                    onClick={() => void loadEvents(session.id)}
+                    className="cursor-pointer rounded-3xl border border-[#eee3d2] bg-white p-5 shadow-sm transition hover:border-[#d9b77f] hover:shadow-md"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
@@ -177,6 +253,55 @@ export default function ExperimentLogsPage() {
                         </p>
                       </div>
                     </div>
+
+                    {selectedSessionId === session.id && (
+                      <div className="mt-5 border-t border-gray-100 pt-5">
+                        <p className="text-xs font-bold tracking-wider text-gray-400">
+                          READING EVENTS
+                        </p>
+
+                        {isEventLoading ? (
+                          <p className="mt-3 text-sm text-gray-500">
+                            イベントを読み込んでいます...
+                          </p>
+                        ) : events.length === 0 ? (
+                          <p className="mt-3 text-sm text-gray-500">
+                            このセッションのイベントはありません。
+                          </p>
+                        ) : (
+                          <div className="mt-3 grid gap-2">
+                            {events.map((event) => (
+                              <div
+                                key={event.id}
+                                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-gray-50 px-4 py-3"
+                              >
+                                <div>
+                                  <p className="text-sm font-bold text-gray-800">
+                                    {getEventLabel(event.type)}
+                                    {event.reactionEmoji
+                                      ? ` ${event.reactionEmoji}`
+                                      : ""}
+                                  </p>
+
+                                  <p className="mt-1 text-xs text-gray-500">
+                                    {formatDateTime(event.createdAt)}
+                                  </p>
+                                </div>
+
+                                <div className="text-right text-xs text-gray-500">
+                                  <p>
+                                    進捗 {event.percent ?? 0}%
+                                  </p>
+                                  <p>
+                                    段落 {event.paragraphIndex ?? 0}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </article>
                 ))}
               </div>
