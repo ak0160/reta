@@ -72,6 +72,60 @@ type Reaction = {
 };
 
 type ReaderMode = "reading" | "shared";
+type ReadingSessionMode = "solo" | "shared";
+
+type ReadingSession = {
+  id: string;
+  userId: string;
+  username: string;
+  workId: string;
+  workType: WorkType;
+  title: string;
+  author: string;
+  sourceUrl: string;
+  mode: ReadingSessionMode;
+  groupId: string;
+  groupName: string;
+  startedAt: number;
+  lastSeenAt: number;
+  endedAt: number | null;
+  startParagraphIndex: number;
+  endParagraphIndex: number;
+  startPercent: number;
+  endPercent: number;
+  readingUnitsLength: number;
+  activeDurationMs: number;
+  inactiveDurationMs: number;
+  reactionCount: number;
+  layoutMode: LayoutMode;
+  autoScrollUsed: boolean;
+};
+
+type ReadingEventType =
+  | "reading_start"
+  | "reading_end"
+  | "position"
+  | "reaction"
+  | "visibility_hidden"
+  | "visibility_visible"
+  | "layout_change"
+  | "auto_scroll_on"
+  | "auto_scroll_off"
+  | "reader_mode_shared"
+  | "reader_mode_solo";
+
+type ReadingEvent = {
+  sessionId: string;
+  userId: string;
+  type: ReadingEventType;
+  createdAt: number;
+  paragraphIndex: number;
+  percent: number;
+  layoutMode: LayoutMode;
+  groupId: string;
+  reactionEmoji?: string;
+  reactionComment?: string;
+};
 type LayoutMode = "normal" | "grouped" | "horizontal";
 type LoadMode = "preset" | "url";
 type WorkType = "preset" | "url";
@@ -1329,6 +1383,13 @@ export default function Home() {
   const pendingFreshStartWorkIdRef = useRef<string | null>(null);
   const layoutModeRef = useRef<LayoutMode>("normal");
   const readingUnitsLengthRef = useRef(0);
+    // 実験用の読書ログを管理する。
+  const readingSessionIdRef = useRef<string | null>(null);
+  const readingSessionStartedAtRef = useRef<number | null>(null);
+  const readingSessionLastActiveAtRef = useRef<number | null>(null);
+  const lastPositionLogAtRef = useRef(0);
+  const readingSessionHiddenAtRef = useRef<number | null>(null);
+  const readingSessionInactiveDurationRef = useRef(0);
   const didLoadLastReadingStateRef = useRef(false);
   const isRestoringProgressRef = useRef(false);
   const textLoadRequestIdRef = useRef(0);
@@ -1862,6 +1923,12 @@ export default function Home() {
     setSessionChecked(false);
     setIsAutoScroll(false);
 
+    try {
+      await endReadingSession();
+    } catch (error) {
+      console.error("ログアウト時の読書セッション終了失敗", error);
+    }
+
     await signOut(auth);
   };
 
@@ -1980,6 +2047,11 @@ export default function Home() {
     );
 
     setLayoutMode(nextMode);
+layoutModeRef.current = nextMode;
+
+void saveReadingEvent("layout_change").catch((error) => {
+  console.error("レイアウト変更ログ保存失敗", error);
+});
   };
 
   const refreshStoryProgressSummaries = () => {
@@ -2140,6 +2212,14 @@ export default function Home() {
         pendingFreshStartWorkIdRef.current = workId;
       }
 
+      if (
+  readingSessionIdRef.current &&
+  currentWorkRef.current.workId !== workId
+) {
+  await endReadingSession();
+}
+
+
       openLoadedAozoraText(loadedText, canonicalSourceUrl, true);
       setAozoraUrl(canonicalSourceUrl);
       rememberRecentAozoraBook({
@@ -2195,6 +2275,13 @@ export default function Home() {
         pendingResumeProgressRef.current = null;
         pendingFreshStartWorkIdRef.current = workId;
       }
+
+      if (
+  readingSessionIdRef.current &&
+  currentWorkRef.current.workId !== workId
+) {
+  await endReadingSession();
+}
 
       openLoadedAozoraText(loadedText, canonicalSourceUrl, true);
       setAozoraUrl(canonicalSourceUrl);
@@ -2274,7 +2361,14 @@ export default function Home() {
   };
 
   const handleSelectPresetStory = async (storyKey: StoryKey) => {
-    const nextWork = createPresetWork(storyKey);
+  const nextWork = createPresetWork(storyKey);
+
+  if (
+    readingSessionIdRef.current &&
+    currentWorkRef.current.workId !== nextWork.workId
+  ) {
+    await endReadingSession();
+  }
 
     setIsAutoScroll(false);
     setReturnIndex(null);
@@ -2311,6 +2405,12 @@ export default function Home() {
   };
 
   const handleOpenReadingProgress = async (progress: UserReadingProgress) => {
+    if (
+    readingSessionIdRef.current &&
+    currentWorkRef.current.workId !== progress.workId
+  ) {
+    await endReadingSession();
+  }
     setIsAutoScroll(false);
     setReturnIndex(null);
     setSelectedWord("");
@@ -2365,6 +2465,174 @@ export default function Home() {
     progressNoticeTimerRef.current = window.setTimeout(() => {
       setReadingProgressNotice("");
     }, 1800);
+  };
+
+    const saveReadingEvent = async (
+    type: ReadingEventType,
+    options?: {
+      reactionEmoji?: string;
+      reactionComment?: string;
+    },
+  ) => {
+    if (!authUser) return;
+
+    const sessionId = readingSessionIdRef.current;
+    const unitsLength = readingUnitsLengthRef.current;
+
+    if (!sessionId || unitsLength <= 0) return;
+
+    const safeIndex = Math.max(
+      0,
+      Math.min(
+        currentParagraphIndexRef.current,
+        unitsLength - 1,
+      ),
+    );
+
+    const event: ReadingEvent = {
+      sessionId,
+      userId: authUser.uid,
+      type,
+      createdAt: Date.now(),
+      paragraphIndex: safeIndex,
+      percent: getDisplayPercent(safeIndex, unitsLength),
+      layoutMode: layoutModeRef.current,
+      groupId: currentGroup?.id ?? "",
+      ...(options?.reactionEmoji
+        ? { reactionEmoji: options.reactionEmoji }
+        : {}),
+      ...(options?.reactionComment
+        ? { reactionComment: options.reactionComment }
+        : {}),
+    };
+
+    await addDoc(collection(db, "readingEvents"), event);
+  };
+
+    const startReadingSession = async () => {
+    if (!authUser) return;
+    if (readingSessionIdRef.current) return;
+    if (readingUnitsLengthRef.current <= 0) return;
+
+    const activeWork =
+      currentWorkRef.current ??
+      getFallbackCurrentWork(selectedStoryRef.current);
+
+    const now = Date.now();
+    const startIndex = Math.max(
+      0,
+      Math.min(
+        currentParagraphIndexRef.current,
+        readingUnitsLengthRef.current - 1,
+      ),
+    );
+    const startPercent = getDisplayPercent(
+      startIndex,
+      readingUnitsLengthRef.current,
+    );
+
+    const sessionRef = doc(collection(db, "readingSessions"));
+
+    const session: ReadingSession = {
+      id: sessionRef.id,
+      userId: authUser.uid,
+      username: usernameRef.current || "名前なし",
+      workId: activeWork.workId,
+      workType: activeWork.type,
+      title: activeWork.title,
+      author: activeWork.author,
+      sourceUrl: activeWork.sourceUrl,
+      mode: currentGroup ? "shared" : "solo",
+      groupId: currentGroup?.id ?? "",
+      groupName: currentGroup?.name ?? "",
+      startedAt: now,
+      lastSeenAt: now,
+      endedAt: null,
+      startParagraphIndex: startIndex,
+      endParagraphIndex: startIndex,
+      startPercent,
+      endPercent: startPercent,
+      readingUnitsLength: readingUnitsLengthRef.current,
+      activeDurationMs: 0,
+      inactiveDurationMs: 0,
+      reactionCount: 0,
+      layoutMode: layoutModeRef.current,
+      autoScrollUsed: false,
+    };
+
+    await setDoc(sessionRef, session);
+
+    readingSessionIdRef.current = sessionRef.id;
+    readingSessionStartedAtRef.current = now;
+    readingSessionLastActiveAtRef.current = now;
+    lastPositionLogAtRef.current = now;
+    readingSessionHiddenAtRef.current = null;
+    readingSessionInactiveDurationRef.current = 0;
+
+    await saveReadingEvent("reading_start");
+  };
+    const endReadingSession = async () => {
+    if (!authUser) return;
+
+    const sessionId = readingSessionIdRef.current;
+    const startedAt = readingSessionStartedAtRef.current;
+
+    if (!sessionId || startedAt === null) return;
+
+    const now = Date.now();
+    const unitsLength = readingUnitsLengthRef.current;
+
+    const endIndex =
+      unitsLength > 0
+        ? Math.max(
+            0,
+            Math.min(
+              currentParagraphIndexRef.current,
+              unitsLength - 1,
+            ),
+          )
+        : 0;
+
+    const endPercent =
+      unitsLength > 0
+        ? getDisplayPercent(endIndex, unitsLength)
+        : 0;
+
+    let inactiveDurationMs = readingSessionInactiveDurationRef.current;
+
+if (readingSessionHiddenAtRef.current !== null) {
+  inactiveDurationMs +=
+    now - readingSessionHiddenAtRef.current;
+}
+
+    const totalDurationMs = Math.max(0, now - startedAt);
+    const activeDurationMs = Math.max(
+      0,
+      totalDurationMs - inactiveDurationMs,
+    );
+
+    await setDoc(
+      doc(db, "readingSessions", sessionId),
+      {
+        endedAt: now,
+        lastSeenAt: now,
+        endParagraphIndex: endIndex,
+        endPercent,
+        readingUnitsLength: unitsLength,
+        activeDurationMs,
+        inactiveDurationMs,
+      },
+      { merge: true },
+    );
+
+    await saveReadingEvent("reading_end");
+
+    readingSessionIdRef.current = null;
+    readingSessionStartedAtRef.current = null;
+    readingSessionLastActiveAtRef.current = null;
+    lastPositionLogAtRef.current = 0;
+    readingSessionHiddenAtRef.current = null;
+    readingSessionInactiveDurationRef.current = 0;
   };
 
   const saveReadingProgressToFirestore = (
@@ -2965,6 +3233,71 @@ export default function Home() {
   }, [readingUnits.length]);
 
   useEffect(() => {
+  if (!authUser) return;
+  if (readingUnits.length <= 0) return;
+
+  const timer = window.setInterval(() => {
+    if (readingSessionIdRef.current) {
+      window.clearInterval(timer);
+      return;
+    }
+
+    if (Date.now() < restoreGuardUntilRef.current) return;
+    if (isRestoringProgressRef.current) return;
+    if (!isInitialProgressResolvedRef.current) return;
+
+    void startReadingSession().catch((error) => {
+      console.error("読書セッション開始失敗", error);
+    });
+
+    window.clearInterval(timer);
+  }, 200);
+
+  return () => {
+    window.clearInterval(timer);
+  };
+}, [authUser?.uid, readingUnits.length, currentWork.workId]);
+useEffect(() => {
+  if (!authUser) return;
+  if (readingUnits.length <= 0) return;
+
+  const timer = window.setInterval(() => {
+    if (!readingSessionIdRef.current) return;
+    if (document.visibilityState !== "visible") return;
+    if (isPageLeavingRef.current) return;
+    if (isRestoringProgressRef.current) return;
+    if (!isInitialProgressResolvedRef.current) return;
+
+    const now = Date.now();
+
+    if (now - lastPositionLogAtRef.current < 9000) return;
+
+    lastPositionLogAtRef.current = now;
+    readingSessionLastActiveAtRef.current = now;
+
+    if (readingSessionIdRef.current) {
+  void setDoc(
+    doc(db, "readingSessions", readingSessionIdRef.current),
+    {
+      lastSeenAt: now,
+    },
+    { merge: true },
+  ).catch((error) => {
+    console.error("読書セッション生存確認更新失敗", error);
+  });
+}
+
+    void saveReadingEvent("position").catch((error) => {
+      console.error("読書位置ログ保存失敗", error);
+    });
+  }, 10000);
+
+  return () => {
+    window.clearInterval(timer);
+  };
+}, [authUser?.uid, readingUnits.length, currentWork.workId]);
+
+  useEffect(() => {
     if (loadMode === "url") return;
 
     const story = stories[selectedStory];
@@ -3247,9 +3580,30 @@ export default function Home() {
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        handleLeave();
-      } else {
+  if (document.visibilityState === "hidden") {
+    if (
+      readingSessionIdRef.current &&
+      readingSessionHiddenAtRef.current === null
+    ) {
+      readingSessionHiddenAtRef.current = Date.now();
+
+      void saveReadingEvent("visibility_hidden").catch((error) => {
+  console.error("タブ離脱ログ保存失敗", error);
+});
+    }
+
+    handleLeave();
+  } else {
+    if (
+      readingSessionIdRef.current &&
+      readingSessionHiddenAtRef.current !== null
+    ) {
+      readingSessionInactiveDurationRef.current +=
+        Date.now() - readingSessionHiddenAtRef.current;
+
+      readingSessionHiddenAtRef.current = null;
+      readingSessionLastActiveAtRef.current = Date.now();
+    }
         isPageLeavingRef.current = false;
 
         if (authUser && participantId) {
@@ -3776,6 +4130,7 @@ export default function Home() {
     if (!currentGroup) return;
 
     await addDoc(collection(db, "reactions"), {
+      sessionId: readingSessionIdRef.current ?? "",
       storyKey: selectedStoryRef.current,
       groupId: currentGroup.id,
       workId: activeWork.workId,
@@ -3796,6 +4151,31 @@ export default function Home() {
       }),
       createdAt: Date.now(),
     });
+    await saveReadingEvent("reaction", {
+  reactionEmoji,
+  reactionComment,
+});
+
+if (readingSessionIdRef.current) {
+  const sessionRef = doc(
+    db,
+    "readingSessions",
+    readingSessionIdRef.current,
+  );
+
+  await runTransaction(db, async (transaction) => {
+    const sessionSnap = await transaction.get(sessionRef);
+
+    if (!sessionSnap.exists()) return;
+
+    const currentCount =
+      Number(sessionSnap.data().reactionCount) || 0;
+
+    transaction.update(sessionRef, {
+      reactionCount: currentCount + 1,
+    });
+  });
+}
 
     setReactionComment("");
   };
@@ -3842,6 +4222,49 @@ export default function Home() {
     setSearchWord(trimmedWord);
     fetchWikiMeaning(trimmedWord);
   };
+  
+    const changeAutoScroll = (enabled: boolean) => {
+    setIsAutoScroll(enabled);
+
+    if (!readingSessionIdRef.current) return;
+
+    void saveReadingEvent(
+      enabled ? "auto_scroll_on" : "auto_scroll_off",
+    ).catch((error) => {
+      console.error("オートスクロールログ保存失敗", error);
+    });
+
+    if (enabled) {
+      void setDoc(
+        doc(db, "readingSessions", readingSessionIdRef.current),
+        {
+          autoScrollUsed: true,
+        },
+        { merge: true },
+      ).catch((error) => {
+        console.error("オートスクロール利用記録失敗", error);
+      });
+    }
+  };
+
+    const changeReaderMode = (mode: ReaderMode) => {
+    if (mode === readerMode) return;
+
+    setReaderMode(mode);
+
+    if (!readingSessionIdRef.current) return;
+
+    void saveReadingEvent(
+      mode === "shared"
+        ? "reader_mode_shared"
+        : "reader_mode_solo",
+    ).catch((error) => {
+      console.error("読書モード変更ログ保存失敗", error);
+    });
+  };
+  
+
+
 
   const handleReaderKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
@@ -3898,19 +4321,19 @@ export default function Home() {
     }
 
     if (key === "s") {
-      event.preventDefault();
-      setReaderMode("shared");
-    }
+  event.preventDefault();
+  changeReaderMode("shared");
+}
 
     if (key === "r") {
-      event.preventDefault();
-      setReaderMode("reading");
-    }
+  event.preventDefault();
+  changeReaderMode("reading");
+}
 
     if (key === "a") {
-      event.preventDefault();
-      setIsAutoScroll((prev) => !prev);
-    }
+  event.preventDefault();
+  changeAutoScroll(!isAutoScroll);
+}
 
     if (key === "b") {
       event.preventDefault();
@@ -4776,14 +5199,14 @@ export default function Home() {
               <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
                 <button
                   type="button"
-                  onClick={() => setReaderMode("reading")}
+                  onClick={() => changeReaderMode("reading")}
                   className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "reading" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
                   一人読み
                 </button>
                 <button
                   type="button"
-                  onClick={() => setReaderMode("shared")}
+                  onClick={() => changeReaderMode("shared")}
                   className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "shared" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
                   みんなと読む
@@ -4833,14 +5256,19 @@ export default function Home() {
                     step="1"
                     value={isAutoScroll ? autoSpeed : 0}
                     onChange={(event) => {
-                      const nextSpeed = Number(event.target.value);
-                      if (nextSpeed <= 0) {
-                        setIsAutoScroll(false);
-                        return;
-                      }
-                      setAutoSpeed(nextSpeed);
-                      setIsAutoScroll(true);
-                    }}
+  const nextSpeed = Number(event.target.value);
+
+  if (nextSpeed <= 0) {
+    changeAutoScroll(false);
+    return;
+  }
+
+  setAutoSpeed(nextSpeed);
+
+  if (!isAutoScroll) {
+    changeAutoScroll(true);
+  }
+}}
                     className="w-full accent-[#d8a348]"
                     aria-label="オート読書速度"
                   />
@@ -5138,7 +5566,7 @@ export default function Home() {
                   <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
                     <button
                       type="button"
-                      onClick={() => setReaderMode("reading")}
+                      onClick={() => changeReaderMode("reading")}
                       className={`rounded-lg px-3 py-3 text-sm font-bold ${
                         readerMode === "reading"
                           ? "bg-white text-gray-950 shadow-sm"
@@ -5149,7 +5577,7 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setReaderMode("shared")}
+                      onClick={() => changeReaderMode("shared")}
                       className={`rounded-lg px-3 py-3 text-sm font-bold ${
                         readerMode === "shared"
                           ? "bg-white text-gray-950 shadow-sm"
@@ -5205,14 +5633,19 @@ export default function Home() {
                     step="1"
                     value={isAutoScroll ? autoSpeed : 0}
                     onChange={(event) => {
-                      const nextSpeed = Number(event.target.value);
-                      if (nextSpeed <= 0) {
-                        setIsAutoScroll(false);
-                        return;
-                      }
-                      setAutoSpeed(nextSpeed);
-                      setIsAutoScroll(true);
-                    }}
+  const nextSpeed = Number(event.target.value);
+
+  if (nextSpeed <= 0) {
+    changeAutoScroll(false);
+    return;
+  }
+
+  setAutoSpeed(nextSpeed);
+
+  if (!isAutoScroll) {
+    changeAutoScroll(true);
+  }
+}}
                     className="w-full accent-[#d8a348]"
                   />
                 </div>
@@ -5248,7 +5681,7 @@ export default function Home() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => setReaderMode("shared")}
+                      onClick={() => changeReaderMode("shared")}
                       className="mt-4 rounded-xl bg-[#f3cf7a] px-5 py-3 text-sm font-black text-gray-800"
                     >
                       みんなと読む
