@@ -10,6 +10,7 @@ type ReadingSession = {
   title?: string;
   mode?: "solo" | "shared";
   startedAt?: number;
+  lastSeenAt?: number;
   endedAt?: number | null;
   startPercent?: number;
   endPercent?: number;
@@ -56,6 +57,15 @@ const getEventLabel = (type?: string) => {
     default:
       return type || "不明なイベント";
   }
+};
+
+const isStaleSession = (session: ReadingSession) => {
+  if (session.endedAt) return false;
+  if (!session.lastSeenAt) return false;
+
+  const staleThresholdMs = 60 * 1000;
+
+  return Date.now() - session.lastSeenAt > staleThresholdMs;
 };
 
 const formatDateTime = (timestamp?: number | null) => {
@@ -293,8 +303,16 @@ export default function ExperimentLogsPage() {
                           終了日時
                         </p>
                         <p className="mt-1 text-sm font-bold text-gray-700">
-                          {formatDateTime(session.endedAt)}
+                          {isStaleSession(session)
+                            ? "終了未記録"
+                            : formatDateTime(session.endedAt)}
                         </p>
+
+                        {isStaleSession(session) && (
+                          <p className="mt-1 text-xs text-gray-400">
+                            最終確認：{formatDateTime(session.lastSeenAt)}
+                          </p>
+                        )}
                       </div>
 
                       <div className="rounded-2xl bg-gray-50 p-3">
