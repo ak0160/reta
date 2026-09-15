@@ -71,6 +71,27 @@ const formatDateTime = (timestamp?: number | null) => {
   }).format(new Date(timestamp));
 };
 
+const formatElapsedTime = (
+  timestamp?: number,
+  startedAt?: number,
+) => {
+  if (!timestamp || !startedAt) return "0秒";
+
+  const seconds = Math.max(
+    0,
+    Math.floor((timestamp - startedAt) / 1000),
+  );
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  if (minutes <= 0) {
+    return `${remainingSeconds}秒`;
+  }
+
+  return `${minutes}分${remainingSeconds}秒`;
+};
+
 const formatDuration = (durationMs?: number) => {
   if (!durationMs) return "0秒";
 
@@ -148,6 +169,48 @@ export default function ExperimentLogsPage() {
 
     void loadSessions();
   }, []);
+
+  const selectedSession =
+    sessions.find((session) => session.id === selectedSessionId) ?? null;
+
+  const positionEvents = events.filter(
+    (event) => event.type === "position",
+  );
+
+  const sessionStartedAt = selectedSession?.startedAt;
+
+  const chartPoints =
+    sessionStartedAt !== undefined && positionEvents.length > 0
+      ? [
+          {
+            elapsedSeconds: 0,
+            percent: Math.max(
+              0,
+              Math.min(100, selectedSession?.startPercent ?? 0),
+            ),
+          },
+          ...positionEvents.map((event) => ({
+            elapsedSeconds: Math.max(
+              0,
+              ((event.createdAt ?? sessionStartedAt) - sessionStartedAt) / 1000,
+            ),
+            percent: Math.max(0, Math.min(100, event.percent ?? 0)),
+          })),
+        ]
+      : [];
+
+  const chartMaxSeconds = Math.max(
+    1,
+    ...chartPoints.map((point) => point.elapsedSeconds),
+  );
+
+  const chartPolylinePoints = chartPoints
+    .map((point) => {
+      const x = 55 + (point.elapsedSeconds / chartMaxSeconds) * 715;
+      const y = 220 - point.percent * 2;
+      return `${x},${y}`;
+    })
+    .join(" ");
 
   return (
     <main className="min-h-screen bg-[#f5f1e8] p-6">
@@ -256,6 +319,122 @@ export default function ExperimentLogsPage() {
 
                     {selectedSessionId === session.id && (
                       <div className="mt-5 border-t border-gray-100 pt-5">
+                        {!isEventLoading && chartPoints.length > 0 && (
+                          <div className="mb-6">
+                            <p className="text-xs font-bold tracking-wider text-gray-400">
+                              READING PROGRESS
+                            </p>
+
+                            <p className="mt-1 text-sm text-gray-500">
+                              読書開始からの進捗推移
+                            </p>
+
+                            <div className="mt-3 overflow-x-auto rounded-2xl bg-gray-50 p-4">
+                              <svg
+                                viewBox="0 0 800 260"
+                                className="h-[260px] min-w-[600px] w-full"
+                                role="img"
+                                aria-label="読書進捗グラフ"
+                              >
+                                <line
+                                  x1="55"
+                                  y1="20"
+                                  x2="55"
+                                  y2="220"
+                                  stroke="currentColor"
+                                  className="text-gray-300"
+                                />
+                                <line
+                                  x1="55"
+                                  y1="220"
+                                  x2="770"
+                                  y2="220"
+                                  stroke="currentColor"
+                                  className="text-gray-300"
+                                />
+
+                                {[0, 25, 50, 75, 100].map((percent) => {
+                                  const y = 220 - percent * 2;
+
+                                  return (
+                                    <g key={percent}>
+                                      <line
+                                        x1="55"
+                                        y1={y}
+                                        x2="770"
+                                        y2={y}
+                                        stroke="currentColor"
+                                        className="text-gray-200"
+                                      />
+                                      <text
+                                        x="45"
+                                        y={y + 4}
+                                        textAnchor="end"
+                                        className="fill-gray-400 text-[11px]"
+                                      >
+                                        {percent}%
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {chartPolylinePoints && (
+                                  <>
+                                    <polyline
+                                      points={chartPolylinePoints}
+                                      fill="none"
+                                      stroke="#b98234"
+                                      strokeWidth="3"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+
+                                    {chartPoints.map((point, index) => {
+                                      const x =
+                                        55 +
+                                        (point.elapsedSeconds /
+                                          chartMaxSeconds) *
+                                          715;
+                                      const y = 220 - point.percent * 2;
+
+                                      return (
+                                        <circle
+                                          key={index}
+                                          cx={x}
+                                          cy={y}
+                                          r="4"
+                                          fill="#b98234"
+                                        />
+                                      );
+                                    })}
+                                  </>
+                                )}
+
+                                <text
+                                  x="55"
+                                  y="242"
+                                  className="fill-gray-400 text-[11px]"
+                                >
+                                  0秒
+                                </text>
+
+                                <text
+                                  x="770"
+                                  y="242"
+                                  textAnchor="end"
+                                  className="fill-gray-400 text-[11px]"
+                                >
+                                  {formatElapsedTime(
+                                    (selectedSession?.startedAt ?? 0) +
+                                      chartMaxSeconds * 1000,
+                                    selectedSession?.startedAt,
+                                  )}
+                                </text>
+                              </svg>
+                            </div>
+                          </div>
+                        )}
+
                         <p className="text-xs font-bold tracking-wider text-gray-400">
                           READING EVENTS
                         </p>
