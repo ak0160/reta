@@ -2148,45 +2148,26 @@ void saveReadingEvent("layout_change").catch((error) => {
       return;
     }
 
-    const urlWorksQuery = query(
-      collection(db, "works"),
-      where("type", "==", "url"),
-    );
+    const urlWorks = userReadingProgresses
+      .filter(
+        (progress) =>
+          progress.workType === "url" &&
+          progress.workId.trim() !== "" &&
+          progress.sourceUrl.trim() !== "",
+      )
+      .map(
+        (progress) =>
+          ({
+            workId: progress.workId,
+            title: progress.title,
+            author: progress.author,
+            sourceUrl: progress.sourceUrl,
+          }) satisfies RegisteredUrlWork,
+      )
+      .sort((a, b) => a.title.localeCompare(b.title, "ja"));
 
-    const unsubscribe = onSnapshot(
-      urlWorksQuery,
-      (snapshot) => {
-        const works = snapshot.docs
-          .map((workDoc) => {
-            const data = workDoc.data();
-
-            if (
-              typeof data.title !== "string" ||
-              typeof data.author !== "string" ||
-              typeof data.sourceUrl !== "string"
-            ) {
-              return null;
-            }
-
-            return {
-              workId: workDoc.id,
-              title: data.title,
-              author: data.author,
-              sourceUrl: data.sourceUrl,
-            } satisfies RegisteredUrlWork;
-          })
-          .filter((work): work is RegisteredUrlWork => work !== null)
-          .sort((a, b) => a.title.localeCompare(b.title, "ja"));
-
-        setRegisteredUrlWorks(works);
-      },
-      (error) => {
-        console.error("登録済みURL作品の取得失敗", error);
-      },
-    );
-
-    return unsubscribe;
-  }, [authUser]);
+    setRegisteredUrlWorks(urlWorks);
+  }, [authUser, userReadingProgresses]);
 
   const rememberRecentAozoraBook = (book: AozoraSearchBook) => {
     const nextBooks = [
