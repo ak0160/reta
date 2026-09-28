@@ -451,3 +451,529 @@ rt {
     line-height: 1;
   }
 }
+
+/* 青空文庫の傍点 */
+.aozora-emphasis {
+  -webkit-text-emphasis: filled sesame;
+  text-emphasis: filled sesame;
+  -webkit-text-emphasis-position: over right;
+  text-emphasis-position: over right;
+}
+
+/* 青空文庫の下付き小文字 */
+.aozora-subscript {
+  font-size: 0.7em;
+  line-height: 1;
+  vertical-align: sub;
+}
+
+/* ReTA startup splash */
+.reta-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%,
+      rgba(255,255,255,0.98) 0%,
+      rgba(250,248,242,0.96) 48%,
+      rgba(242,239,231,1) 100%);
+  animation: reta-splash-exit 0.55s ease 3.45s forwards;
+}
+
+.reta-splash-content {
+  position: relative;
+  z-index: 3;
+  text-align: center;
+  transform: translateY(-1rem);
+}
+
+.reta-splash-logo {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(4.6rem, 12vw, 8rem);
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.08em;
+  color: #495b66;
+  opacity: 0;
+  filter: blur(8px);
+  transform: translateY(10px) scale(0.96);
+  animation: reta-logo-appear 1.45s cubic-bezier(0.22,1,0.36,1) 0.35s forwards;
+}
+
+.reta-splash-tagline {
+  margin-top: 1.4rem;
+  padding-left: 0.3em;
+  font-size: clamp(0.62rem, 1.5vw, 0.82rem);
+  font-weight: 600;
+  letter-spacing: 0.38em;
+  color: #8a969c;
+  opacity: 0;
+  transform: translateY(7px);
+  animation: reta-tagline-appear 0.9s ease 1.45s forwards;
+}
+
+.reta-splash-light {
+  position: absolute;
+  width: 34rem;
+  height: 34rem;
+  border-radius: 45% 55% 60% 40%;
+  background: rgba(128,151,143,0.08);
+  filter: blur(45px);
+  pointer-events: none;
+}
+
+.reta-splash-light-one {
+  top: -12rem;
+  left: -10rem;
+  animation: reta-light-one 5s ease-in-out infinite alternate;
+}
+
+.reta-splash-light-two {
+  right: -12rem;
+  bottom: -13rem;
+  background: rgba(188,169,130,0.09);
+  animation: reta-light-two 5.5s ease-in-out infinite alternate;
+}
+
+.reta-splash-progress {
+  position: absolute;
+  bottom: 8%;
+  left: 50%;
+  width: min(9rem,35vw);
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(73,91,102,0.12);
+  transform: translateX(-50%);
+}
+
+.reta-splash-progress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(73,91,102,0.55);
+  transform: translateX(-100%);
+  animation: reta-progress 3.25s cubic-bezier(0.4,0,0.2,1) 0.3s forwards;
+}
+
+@keyframes reta-logo-appear {
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes reta-tagline-appear {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes reta-progress {
+  to { transform: translateX(0); }
+}
+
+@keyframes reta-light-one {
+  to { transform: translate3d(4rem,3rem,0) rotate(10deg); }
+}
+
+@keyframes reta-light-two {
+  to { transform: translate3d(-4rem,-2rem,0) rotate(-12deg); }
+}
+
+@keyframes reta-splash-exit {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+
+/* ReTA handwritten logo refinement */
+.reta-splash-logo {
+  width: min(28rem, 76vw);
+  color: #38536a;
+}
+
+.reta-handwriting {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.reta-handwriting-stroke,
+.reta-handwriting-fill {
+  font-family: "Snell Roundhand", "Apple Chancery", "URW Chancery L", cursive;
+  font-size: 118px;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.reta-handwriting-stroke {
+  fill: transparent;
+  stroke: #38536a;
+  stroke-width: 1.7px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+
+  animation:
+    reta-pencil-write 1.75s cubic-bezier(0.45, 0, 0.3, 1)
+      0.45s forwards;
+}
+
+.reta-handwriting-fill {
+  fill: #38536a;
+  opacity: 0;
+
+  animation:
+    reta-ink-settle 0.55s ease 1.85s forwards;
+}
+
+@keyframes reta-pencil-write {
+  from {
+    stroke-dashoffset: 1200;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes reta-ink-settle {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* タグラインはロゴを書き終えてから表示 */
+.reta-splash-tagline {
+  animation: reta-tagline-appear 0.8s ease 2.05s forwards;
+}
+
+/* ReTA smooth writing reveal */
+.reta-handwriting-complete {
+  font-family: "Snell Roundhand", "Apple Chancery", "URW Chancery L", cursive;
+  font-size: 118px;
+  font-weight: 400;
+  font-style: italic;
+  fill: #38536a;
+}
+
+.reta-write-mask {
+  animation: reta-smooth-write 1.85s
+    cubic-bezier(0.42, 0, 0.25, 1)
+    0.45s forwards;
+}
+
+@keyframes reta-smooth-write {
+  0% {
+    width: 0;
+  }
+
+  18% {
+    width: 125px;
+  }
+
+  35% {
+    width: 205px;
+  }
+
+  68% {
+    width: 355px;
+  }
+
+  100% {
+    width: 470px;
+  }
+}
+
+/* ロゴ完成後にタグライン */
+.reta-splash-tagline {
+  animation: reta-tagline-appear 0.75s ease 2.35s forwards;
+}
+
+/* ReTA soft leaf shadows */
+.reta-leaf-shadow {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  filter: blur(7px);
+  animation:
+    reta-leaves-appear 1.4s ease 0.15s forwards,
+    reta-leaves-sway 7s ease-in-out 1.5s infinite alternate;
+}
+
+.reta-leaf-shadow-top {
+  top: -2rem;
+  left: -1rem;
+  width: 25rem;
+  height: 22rem;
+  transform-origin: top left;
+}
+
+.reta-leaf-shadow-bottom {
+  bottom: -5rem;
+  left: -3rem;
+  width: 20rem;
+  height: 18rem;
+  transform: rotate(18deg);
+  transform-origin: bottom left;
+  opacity: 0;
+}
+
+.reta-leaf-shadow span {
+  position: absolute;
+  display: block;
+  width: 6.5rem;
+  height: 2.6rem;
+  border-radius: 100% 0 100% 0;
+  background: rgba(82, 99, 82, 0.13);
+}
+
+.reta-leaf-shadow-top span:nth-child(1) {
+  top: 2rem;
+  left: 0;
+  transform: rotate(28deg);
+}
+
+.reta-leaf-shadow-top span:nth-child(2) {
+  top: 5rem;
+  left: 4rem;
+  transform: rotate(50deg) scale(0.85);
+}
+
+.reta-leaf-shadow-top span:nth-child(3) {
+  top: 8rem;
+  left: 1rem;
+  transform: rotate(20deg) scale(1.15);
+}
+
+.reta-leaf-shadow-top span:nth-child(4) {
+  top: 1rem;
+  left: 9rem;
+  transform: rotate(65deg) scale(0.8);
+}
+
+.reta-leaf-shadow-top span:nth-child(5) {
+  top: 11rem;
+  left: 7rem;
+  transform: rotate(42deg) scale(0.75);
+}
+
+.reta-leaf-shadow-top span:nth-child(6) {
+  top: 5rem;
+  left: 13rem;
+  transform: rotate(72deg) scale(0.7);
+}
+
+.reta-leaf-shadow-top span:nth-child(7) {
+  top: 14rem;
+  left: 2rem;
+  transform: rotate(33deg) scale(0.65);
+}
+
+.reta-leaf-shadow-bottom span:nth-child(1) {
+  top: 2rem;
+  left: 1rem;
+  transform: rotate(35deg);
+}
+
+.reta-leaf-shadow-bottom span:nth-child(2) {
+  top: 6rem;
+  left: 5rem;
+  transform: rotate(60deg) scale(0.8);
+}
+
+.reta-leaf-shadow-bottom span:nth-child(3) {
+  top: 9rem;
+  left: 1rem;
+  transform: rotate(25deg) scale(1.05);
+}
+
+.reta-leaf-shadow-bottom span:nth-child(4) {
+  top: 3rem;
+  left: 10rem;
+  transform: rotate(70deg) scale(0.7);
+}
+
+.reta-leaf-shadow-bottom span:nth-child(5) {
+  top: 12rem;
+  left: 7rem;
+  transform: rotate(45deg) scale(0.8);
+}
+
+@keyframes reta-leaves-appear {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 0.7;
+  }
+}
+
+@keyframes reta-leaves-sway {
+  0% {
+    translate: 0 0;
+    rotate: -1deg;
+  }
+
+  50% {
+    translate: 8px 3px;
+    rotate: 1.5deg;
+  }
+
+  100% {
+    translate: -4px 8px;
+    rotate: -0.5deg;
+  }
+}
+
+@media (max-width: 640px) {
+  .reta-leaf-shadow-top {
+    transform: scale(0.72);
+  }
+
+  .reta-leaf-shadow-bottom {
+    transform: rotate(18deg) scale(0.72);
+  }
+}
+
+/* ReTA final logo animation */
+.reta-splash-logo {
+  width: min(28rem, 76vw);
+  color: #38536a;
+}
+
+.reta-handwriting {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.reta-handwriting-stroke,
+.reta-handwriting-fill {
+  font-family: "Snell Roundhand", "Apple Chancery", "URW Chancery L", cursive;
+  font-size: 118px;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.reta-handwriting-stroke {
+  fill: transparent;
+  stroke: #38536a;
+  stroke-width: 1.7px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: reta-logo-draw 1.75s cubic-bezier(0.45, 0, 0.3, 1) 0.45s forwards;
+}
+
+.reta-handwriting-fill {
+  fill: #38536a;
+  opacity: 0;
+  animation: reta-logo-fill 0.55s ease 1.85s forwards;
+}
+
+@keyframes reta-logo-draw {
+  from {
+    stroke-dashoffset: 1200;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes reta-logo-fill {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.reta-splash-tagline {
+  animation: reta-tagline-appear 0.8s ease 2.05s forwards;
+}
+
+/* ReTA leaf shadow - stronger & more dynamic */
+.reta-leaf-shadow {
+  filter: blur(5px);
+  animation:
+    reta-leaves-appear-strong 0.9s ease 0.05s forwards,
+    reta-leaves-sway-strong 3.8s ease-in-out 0.9s infinite alternate;
+}
+
+.reta-leaf-shadow span {
+  background: rgba(55, 73, 58, 0.24);
+  box-shadow: 0 8px 18px rgba(55, 73, 58, 0.06);
+}
+
+.reta-leaf-shadow-top {
+  top: -1rem;
+  left: -1rem;
+}
+
+.reta-leaf-shadow-bottom {
+  bottom: -4rem;
+  left: -2rem;
+}
+
+@keyframes reta-leaves-appear-strong {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 0.9;
+  }
+}
+
+@keyframes reta-leaves-sway-strong {
+  0% {
+    translate: -5px -3px;
+    rotate: -2deg;
+  }
+
+  25% {
+    translate: 5px 3px;
+    rotate: 0.5deg;
+  }
+
+  55% {
+    translate: 14px 7px;
+    rotate: 2.5deg;
+  }
+
+  80% {
+    translate: 5px 12px;
+    rotate: 0.5deg;
+  }
+
+  100% {
+    translate: -8px 6px;
+    rotate: -2.5deg;
+  }
+}
