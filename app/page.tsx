@@ -517,7 +517,7 @@ function getPercent(index: number, count: number) {
 function getMapPercent(index: number, count: number) {
   if (count <= 1) return 0;
 
-  return Math.round((index / (count - 1)) * 100);
+  return Math.round(100 - (index / (count - 1)) * 100);
 }
 
 function getDisplayName(name: string) {
@@ -779,9 +779,37 @@ function decorateText(text: string) {
   return highlightDictionaryWords(rubyConverted);
 }
 
+function preserveAozoraEmphasis(line: string) {
+  return line.replace(
+    /([^［］]+?)［＃「([^」]+)」に傍点］/g,
+    (match, before: string, emphasized: string) => {
+      if (!before.endsWith(emphasized)) return match;
+
+      const normalText = before.slice(0, -emphasized.length);
+
+      return `${normalText}<span class="aozora-emphasis">${emphasized}</span>`;
+    },
+  );
+}
+
+function preserveAozoraSubscript(line: string) {
+  return line.replace(
+    /([^［］]+?)［＃「([^」]+)」は下付き小文字］/g,
+    (match, before: string, subscript: string) => {
+      if (!before.endsWith(subscript)) return match;
+
+      const normalText = before.slice(0, -subscript.length);
+
+      return `${normalText}<sub class="aozora-subscript">${subscript}</sub>`;
+    },
+  );
+}
+
 function stripAozoraNotes(line: string) {
   // ［＃〜］は字下げ・傍点・外字説明などの入力者注なので、本文表示からは外す。
-  return line.replace(/［＃.*?］/g, "");
+  return preserveAozoraSubscript(
+    preserveAozoraEmphasis(line),
+  ).replace(/［＃.*?］/g, "");
 }
 
 function removeAozoraGuideBlock(text: string) {
@@ -793,6 +821,7 @@ function cleanAozoraText(
   text: string,
   title: string,
   author: string,
+  textSource: "aozora" | "ocr" = "aozora",
 ): Paragraph[] {
   const unifiedText = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
@@ -1012,19 +1041,20 @@ function buildReadingUnits(paragraphs: Paragraph[]) {
   return units;
 }
 
-const AOZORA_PROXY_URLS = [
-  (url: string) => url,
-  (url: string) =>
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-  (url: string) =>
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-];
+const AOZORA_WORKER_URL =
+  "https://reta-aozora.reta-aozora.workers.dev";
 
 type LoadedAozoraText = {
   title: string;
   author: string;
   rawText: string;
+  sourceUrl: string;
+};
+
+type RegisteredUrlWork = {
+  workId: string;
+  title: string;
+  author: string;
   sourceUrl: string;
 };
 
@@ -1043,38 +1073,57 @@ const RECENT_AOZORA_BOOKS_KEY = "sharedReadingRecentAozoraBooks_v1";
 const AOZORA_BOOK_API_URL = "https://api.bungomail.com/v0/books";
 
 async function fetchWithFallback(url: string) {
-  let lastError: unknown = null;
+  const workerUrl =
+    `${AOZORA_WORKER_URL}?url=${encodeURIComponent(url)}`;
 
-  for (const createUrl of AOZORA_PROXY_URLS) {
-    try {
-      const response = await fetch(createUrl(url));
+  try {
+    const response = await fetch(workerUrl);
 
-      if (!response.ok) {
-        lastError = new Error(`HTTP ${response.status}`);
-        continue;
-      }
-
-      return response;
-    } catch (error) {
-      lastError = error;
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
     }
-  }
 
-  console.error("fetchWithFallback failed", lastError);
-  throw new Error(
-    "外部データの取得に失敗しました。時間をおいて再試行してください",
-  );
+    return response;
+  } catch (error) {
+    console.error("Aozora Worker fetch failed", error);
+
+    throw new Error(
+      "青空文庫の取得に失敗しました。時間をおいて再試行してください",
+    );
+  }
 }
 
 async function fetchTextThroughProxy(url: string) {
   const response = await fetchWithFallback(url);
   const buffer = await response.arrayBuffer();
 
-  try {
-    return new TextDecoder("shift_jis").decode(buffer);
-  } catch {
+  const contentType =
+    response.headers.get("content-type")?.toLowerCase() ?? "";
+
+  if (
+    contentType.includes("charset=utf-8") ||
+    contentType.includes("charset=utf8")
+  ) {
     return new TextDecoder("utf-8").decode(buffer);
   }
+
+  if (
+    contentType.includes("shift_jis") ||
+    contentType.includes("shift-jis") ||
+    contentType.includes("sjis")
+  ) {
+    return new TextDecoder("shift_jis").decode(buffer);
+  }
+
+  const utf8Text = new TextDecoder("utf-8").decode(buffer);
+
+  if (
+    /charset\s*=\s*["']?utf-?8/i.test(utf8Text)
+  ) {
+    return utf8Text;
+  }
+
+  return new TextDecoder("shift_jis").decode(buffer);
 }
 
 async function fetchJsonThroughProxy<T>(url: string): Promise<T> {
@@ -1295,6 +1344,15 @@ async function loadAozoraTextFromUrl(url: string): Promise<LoadedAozoraText> {
 export default function Home() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setShowSplash(false);
+    }, 4000);
+
+    return () => window.clearTimeout(timer);
+  }, []);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -1316,6 +1374,9 @@ export default function Home() {
   >([]);
   const [recentAozoraBooks, setRecentAozoraBooks] = useState<
     AozoraSearchBook[]
+  >([]);
+  const [registeredUrlWorks, setRegisteredUrlWorks] = useState<
+    RegisteredUrlWork[]
   >([]);
   const [customTitle, setCustomTitle] = useState("");
   const [customAuthor, setCustomAuthor] = useState("");
@@ -1339,6 +1400,8 @@ export default function Home() {
   >([]);
 
   const [selectedStory, setSelectedStory] = useState<StoryKey>("wagahai");
+  const [hasSelectedWork, setHasSelectedWork] = useState(false);
+  const hasSelectedWorkRef = useRef(false);
   const [currentWork, setCurrentWork] = useState<CurrentWork>(() =>
     createPresetWork("wagahai"),
   );
@@ -1790,6 +1853,25 @@ export default function Home() {
         createdAt: Date.now(),
       });
 
+      // 新規登録直後も通常ログインと同じように
+      // このブラウザ用のセッションを作成する。
+      const sessionId = createSessionId();
+      const sessionStorageKey = `retaActiveSession_${result.user.uid}`;
+
+      await setDoc(
+        doc(db, "activeSessions", result.user.uid),
+        {
+          userId: result.user.uid,
+          sessionId,
+          updatedAt: Date.now(),
+        },
+        { merge: true },
+      );
+
+      sessionIdRef.current = sessionId;
+      window.localStorage.setItem(sessionStorageKey, sessionId);
+      setSessionChecked(true);
+
       setUsername(username);
       usernameRef.current = username;
       setParticipantId(result.user.uid);
@@ -2060,6 +2142,52 @@ void saveReadingEvent("layout_change").catch((error) => {
     );
   };
 
+  useEffect(() => {
+    if (!authUser) {
+      setRegisteredUrlWorks([]);
+      return;
+    }
+
+    const urlWorksQuery = query(
+      collection(db, "works"),
+      where("type", "==", "url"),
+    );
+
+    const unsubscribe = onSnapshot(
+      urlWorksQuery,
+      (snapshot) => {
+        const works = snapshot.docs
+          .map((workDoc) => {
+            const data = workDoc.data();
+
+            if (
+              typeof data.title !== "string" ||
+              typeof data.author !== "string" ||
+              typeof data.sourceUrl !== "string"
+            ) {
+              return null;
+            }
+
+            return {
+              workId: workDoc.id,
+              title: data.title,
+              author: data.author,
+              sourceUrl: data.sourceUrl,
+            } satisfies RegisteredUrlWork;
+          })
+          .filter((work): work is RegisteredUrlWork => work !== null)
+          .sort((a, b) => a.title.localeCompare(b.title, "ja"));
+
+        setRegisteredUrlWorks(works);
+      },
+      (error) => {
+        console.error("登録済みURL作品の取得失敗", error);
+      },
+    );
+
+    return unsubscribe;
+  }, [authUser]);
+
   const rememberRecentAozoraBook = (book: AozoraSearchBook) => {
     const nextBooks = [
       book,
@@ -2189,6 +2317,8 @@ void saveReadingEvent("layout_change").catch((error) => {
       return;
     }
 
+    setHasSelectedWork(true);
+    hasSelectedWorkRef.current = true;
     setIsLoadingAozora(true);
     setAozoraLoadError("");
     isRestoringProgressRef.current = true;
@@ -2245,6 +2375,38 @@ void saveReadingEvent("layout_change").catch((error) => {
     }
   };
 
+  const handleSelectRegisteredWork = async (value: string) => {
+    if (!value) return;
+
+    if (value.startsWith("preset:")) {
+      const storyKey = value.slice("preset:".length) as StoryKey;
+      await handleSelectPresetStory(storyKey);
+      return;
+    }
+
+    if (value.startsWith("url:")) {
+      const workId = value.slice("url:".length);
+      const work = registeredUrlWorks.find(
+        (registeredWork) => registeredWork.workId === workId,
+      );
+
+      if (!work) return;
+
+      setAozoraUrl(work.sourceUrl);
+
+      await handleOpenAozoraBook({
+        id: work.workId,
+        title: work.title,
+        author: work.author,
+        cardUrl: work.sourceUrl,
+        htmlUrl: work.sourceUrl,
+        firstLine: "",
+        characters: 0,
+        updatedAt: "",
+      });
+    }
+  };
+
   const handleLoadAozoraUrl = async () => {
     const trimmedUrl = aozoraUrl.trim();
 
@@ -2253,6 +2415,8 @@ void saveReadingEvent("layout_change").catch((error) => {
       return;
     }
 
+    setHasSelectedWork(true);
+    hasSelectedWorkRef.current = true;
     setIsLoadingAozora(true);
     setAozoraLoadError("");
     setIsAutoScroll(false);
@@ -2361,6 +2525,8 @@ void saveReadingEvent("layout_change").catch((error) => {
   };
 
   const handleSelectPresetStory = async (storyKey: StoryKey) => {
+  setHasSelectedWork(true);
+  hasSelectedWorkRef.current = true;
   const nextWork = createPresetWork(storyKey);
 
   if (
@@ -2405,6 +2571,8 @@ void saveReadingEvent("layout_change").catch((error) => {
   };
 
   const handleOpenReadingProgress = async (progress: UserReadingProgress) => {
+    setHasSelectedWork(true);
+    hasSelectedWorkRef.current = true;
     if (
     readingSessionIdRef.current &&
     currentWorkRef.current.workId !== progress.workId
@@ -2646,6 +2814,7 @@ if (readingSessionHiddenAtRef.current !== null) {
     scrollTop: number,
   ) => {
     if (!authUser) return;
+    if (!hasSelectedWorkRef.current) return;
     if (unitsLength <= 0) return;
 
     const activeWork =
@@ -2684,6 +2853,7 @@ if (readingSessionHiddenAtRef.current !== null) {
   const saveReadingProgress = (
     nextIndex = currentParagraphIndexRef.current,
   ) => {
+    if (!hasSelectedWorkRef.current) return;
     if (Date.now() < restoreGuardUntilRef.current) return;
     if (isRestoringProgressRef.current) return;
     if (!isInitialProgressResolvedRef.current) return;
@@ -3080,104 +3250,11 @@ if (readingSessionHiddenAtRef.current !== null) {
 
     refreshStoryProgressSummaries();
 
-    const lastState = authUser
-      ? loadLastReadingState(authUser.uid)
-      : null;
-
-    if (lastState) {
-      setLayoutMode(lastState.layoutMode);
-      layoutModeRef.current = lastState.layoutMode;
-
-      if (
-        lastState.workType === "preset" &&
-        isStoryKey(lastState.storyKey)
-      ) {
-        setLoadMode("preset");
-        setSelectedStory(lastState.storyKey);
-        selectedStoryRef.current = lastState.storyKey;
-        isRestoringProgressRef.current = true;
-        isInitialProgressResolvedRef.current = false;
-
-        pendingResumeProgressRef.current = {
-          userId: auth.currentUser?.uid ?? "",
-          username: usernameRef.current || "名前なし",
-          workId: lastState.workId,
-          workType: "preset",
-          title: lastState.title,
-          author: lastState.author,
-          sourceUrl: lastState.sourceUrl,
-          storyKey: lastState.storyKey,
-          layoutMode: lastState.layoutMode,
-          currentParagraphIndex: lastState.currentParagraphIndex,
-          readingUnitsLength: lastState.readingUnitsLength,
-          percent: getDisplayPercent(
-            lastState.currentParagraphIndex,
-            Math.max(1, lastState.readingUnitsLength),
-          ),
-          scrollLeft: lastState.scrollLeft,
-          scrollTop: lastState.scrollTop,
-          updatedAt: lastState.savedAt,
-        };
-      }
-
-      if (lastState.workType === "url" && lastState.sourceUrl) {
-        setLoadMode("url");
-        setAozoraUrl(lastState.sourceUrl);
-        isRestoringProgressRef.current = true;
-        isInitialProgressResolvedRef.current = false;
-
-        pendingResumeProgressRef.current = {
-          userId: auth.currentUser?.uid ?? "",
-          username: usernameRef.current || "名前なし",
-          workId: lastState.workId,
-          workType: "url",
-          title: lastState.title,
-          author: lastState.author,
-          sourceUrl: lastState.sourceUrl,
-          storyKey: "",
-          layoutMode: lastState.layoutMode,
-          currentParagraphIndex: lastState.currentParagraphIndex,
-          readingUnitsLength: lastState.readingUnitsLength,
-          percent: getDisplayPercent(
-            lastState.currentParagraphIndex,
-            Math.max(1, lastState.readingUnitsLength),
-          ),
-          scrollLeft: lastState.scrollLeft,
-          scrollTop: lastState.scrollTop,
-          updatedAt: lastState.savedAt,
-        };
-
-        void (async () => {
-          try {
-            const loadedText = await loadAozoraTextFromUrl(
-              lastState.sourceUrl,
-            );
-
-            const urlWork: CurrentWork = {
-              workId: lastState.workId,
-              type: "url",
-              title: lastState.title,
-              author: lastState.author,
-              sourceUrl: lastState.sourceUrl,
-            };
-
-            setCurrentWork(urlWork);
-            currentWorkRef.current = urlWork;
-
-            openLoadedAozoraText(
-              loadedText,
-              lastState.sourceUrl,
-              true,
-            );
-          } catch (error) {
-            console.error("前回のURL作品の復元に失敗", error);
-            setAozoraLoadError("前回開いていたURL作品を復元できませんでした");
-            isRestoringProgressRef.current = false;
-            isInitialProgressResolvedRef.current = true;
-          }
-        })();
-      }
-    }
+    // ログイン直後は前回の作品を自動では開かない。
+    // 読書位置は、ユーザーが作品を選択したときにFirestoreから復元する。
+    pendingResumeProgressRef.current = null;
+    pendingFreshStartWorkIdRef.current = null;
+    isRestoringProgressRef.current = false;
 
     setRecentAozoraBooks(loadRecentAozoraBooksFromStorage());
 
@@ -3298,6 +3375,11 @@ useEffect(() => {
   useEffect(() => {
     if (loadMode === "url") return;
 
+    if (!hasSelectedWork) {
+      setParagraphs([]);
+      return;
+    }
+
     const story = stories[selectedStory];
     const presetWork = createPresetWork(selectedStory);
     setCurrentWork(presetWork);
@@ -3345,6 +3427,7 @@ useEffect(() => {
           rawText,
           story.title,
           story.author,
+          story.textSource,
         );
 
         setParagraphs(cleanedParagraphs);
@@ -3359,7 +3442,7 @@ useEffect(() => {
     };
 
     loadText();
-  }, [selectedStory, loadMode, authUser]);
+  }, [selectedStory, authUser, hasSelectedWork]);
 
   useEffect(() => {
     if (readingUnits.length === 0) return;
@@ -3471,17 +3554,8 @@ useEffect(() => {
       return;
     }
 
-    const savedProgress = loadReadingProgressFromStorage(
-      authUser?.uid ?? "",
-      selectedStory,
-      layoutMode,
-    );
-
-    if (savedProgress) {
-      restoreReadingProgress(savedProgress, layoutMode);
-      return;
-    }
-
+    // Firestoreに読書履歴がない作品は、必ず文頭から開始する。
+    // 古いlocalStorageの読書位置は適用しない。
     resetToBeginning(layoutMode);
     lastStableParagraphIndexRef.current = 0;
     refreshStoryProgressSummaries();
@@ -3727,7 +3801,7 @@ useEffect(() => {
 
       const data = Array.from(latestByWorkId.values())
         .sort((a, b) => b.updatedAt - a.updatedAt)
-        .slice(0, 8);
+        ;
 
       setUserReadingProgresses(data);
     });
@@ -4397,6 +4471,52 @@ if (readingSessionIdRef.current) {
     },
   };
 
+  if (showSplash) {
+    return (
+      <main className="reta-splash">
+        <div className="reta-splash-light reta-splash-light-one" />
+        <div className="reta-splash-light reta-splash-light-two" />
+
+        <div className="reta-splash-content">
+          <div className="reta-splash-logo" aria-label="ReTA">
+            <svg
+              className="reta-handwriting"
+              viewBox="0 0 500 170"
+              role="img"
+              aria-label="ReTA"
+            >
+              <text
+                x="250"
+                y="125"
+                textAnchor="middle"
+                className="reta-handwriting-stroke"
+              >
+                ReTA
+              </text>
+
+              <text
+                x="250"
+                y="125"
+                textAnchor="middle"
+                className="reta-handwriting-fill"
+              >
+                ReTA
+              </text>
+            </svg>
+          </div>
+
+          <p className="reta-splash-tagline">
+            READING TOGETHER, APART
+          </p>
+        </div>
+
+        <div className="reta-splash-progress">
+          <span />
+        </div>
+      </main>
+    );
+  }
+
   if (!authChecked) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8]">
@@ -4419,9 +4539,14 @@ if (readingSessionIdRef.current) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8] px-4">
         <div className="w-full max-w-md rounded-[2rem] border border-[#eee3d2] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
-          <p className="text-xs font-bold tracking-[0.3em] text-[#b98234]">
-            SHARED READING
-          </p>
+          <div className="mb-2">
+            <p
+              className="font-serif text-5xl font-semibold tracking-[-0.04em] text-[#334e68]"
+              aria-label="ReTA"
+            >
+              ReTA
+            </p>
+          </div>
 
           <h1 className="mt-3 text-3xl font-bold text-gray-950">
             共有読書システム
@@ -4625,10 +4750,14 @@ if (readingSessionIdRef.current) {
               </p>
               <div className="mt-1 flex min-w-0 items-baseline gap-2">
                 <h1 className="truncate font-serif text-xl font-bold text-gray-950">
-                  {customTitle || stories[selectedStory].title}
+                  {hasSelectedWork
+                    ? customTitle || stories[selectedStory].title
+                    : "作品を選択してください"}
                 </h1>
                 <span className="shrink-0 text-[0.68rem] font-bold text-gray-400">
-                  {customAuthor || stories[selectedStory].author}
+                  {hasSelectedWork
+                    ? customAuthor || stories[selectedStory].author
+                    : ""}
                 </span>
               </div>
             </div>
@@ -4665,17 +4794,24 @@ if (readingSessionIdRef.current) {
             <div className="min-w-0">
               <div className="mb-3 flex items-center gap-3">
                 <span className="h-7 w-1 rounded-full bg-[#c79a53]" />
-                <p className="text-[0.7rem] font-bold tracking-[0.32em] text-[#a86f24]">
-                  SHARED READING
+                <p
+                  className="font-serif text-2xl font-semibold tracking-[-0.04em] text-[#334e68]"
+                  aria-label="ReTA"
+                >
+                  ReTA
                 </p>
               </div>
 
               <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
                 <h1 className="font-serif text-2xl font-bold tracking-[-0.035em] text-gray-950 sm:text-3xl lg:text-4xl">
-                  {customTitle || stories[selectedStory].title}
+                  {hasSelectedWork
+                    ? customTitle || stories[selectedStory].title
+                    : "作品を選択してください"}
                 </h1>
                 <p className="pb-1 text-sm font-semibold text-gray-500 sm:text-base">
-                  {customAuthor || stories[selectedStory].author}
+                  {hasSelectedWork
+                    ? customAuthor || stories[selectedStory].author
+                    : ""}
                 </p>
               </div>
             </div>
@@ -4778,7 +4914,7 @@ if (readingSessionIdRef.current) {
               <div className="border-t border-[#eee7dc] p-4">
                 <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-[#eee6da] p-1">
                   {[
-                    ["preset", "登録済み"],
+                    ["preset", "マイライブラリ"],
                     ["url", "青空文庫URL"],
                   ].map(([mode, label]) => (
                     <button
@@ -4801,20 +4937,45 @@ if (readingSessionIdRef.current) {
 
                 {loadMode === "preset" && (
                   <select
-                    value={selectedStory}
+                    value={
+                      hasSelectedWork
+                        ? currentWork.type === "url"
+                          ? `url:${currentWork.workId}`
+                          : `preset:${selectedStory}`
+                        : ""
+                    }
                     onChange={(event) => {
-                      void handleSelectPresetStory(
-                        event.target.value as StoryKey,
-                      );
+                      void handleSelectRegisteredWork(event.target.value);
                     }}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#c79a53]"
                   >
+                    <option value="" disabled>
+                      作品を選択してください
+                    </option>
+
                     {Object.entries(stories).map(([key, story]) => {
                       const storyKey = key as StoryKey;
                       const progress = storyProgressSummaries[storyKey];
+
                       return (
-                        <option key={key} value={key}>
+                        <option key={`preset:${key}`} value={`preset:${key}`}>
                           {story.title}{" "}
+                          {progress ? `（${progress.percent}%）` : "（未読）"}
+                        </option>
+                      );
+                    })}
+
+                    {registeredUrlWorks.map((work) => {
+                      const progress = userReadingProgresses.find(
+                        (item) => item.workId === work.workId,
+                      );
+
+                      return (
+                        <option
+                          key={`url:${work.workId}`}
+                          value={`url:${work.workId}`}
+                        >
+                          {work.title} ／ {work.author}{" "}
                           {progress ? `（${progress.percent}%）` : "（未読）"}
                         </option>
                       );
@@ -4882,7 +5043,9 @@ if (readingSessionIdRef.current) {
                 </div>
 
                 <div className="text-sm text-gray-500">
-                  {currentParagraphIndex + 1}区切り目 ／ {readingPercent}%
+                  {hasSelectedWork
+                    ? `${currentParagraphIndex + 1}区切り目 ／ ${readingPercent}%`
+                    : "未選択"}
                 </div>
               </div>
             </div>
@@ -4896,7 +5059,18 @@ if (readingSessionIdRef.current) {
                   : "overflow-x-auto overflow-y-hidden"
               }`}
             >
-              {layoutMode === "horizontal" ? (
+              {!hasSelectedWork ? (
+                <div className="flex h-full w-full items-center justify-center">
+                  <div className="text-center">
+                    <p className="font-serif text-xl font-bold text-gray-700 sm:text-2xl">
+                      作品を選択してください
+                    </p>
+                    <p className="mt-2 text-sm text-gray-400">
+                      メニューから読みたい作品を選択すると、読書を開始できます。
+                    </p>
+                  </div>
+                </div>
+              ) : layoutMode === "horizontal" ? (
                 <div className="horizontal-reading-content font-serif text-[1.3rem] leading-[2.2] tracking-[0.03em] text-gray-900">
                   {paragraphs.map((paragraph, index) => {
                     const paragraphUnits =
@@ -5120,31 +5294,59 @@ if (readingSessionIdRef.current) {
               </div>
 
               <div className="relative h-5 rounded-full bg-gray-200">
-                {visibleParticipants.map((participant) => {
-                  const percent = getMapPercent(
-                    participant.paragraphIndex,
-                    readingUnits.length,
-                  );
+                {visibleParticipants
+                  .filter(
+                    (participant) =>
+                      participant.id !== participantId &&
+                      participant.name !== (username || "asuma"),
+                  )
+                  .map((participant) => {
+                    const percent = getMapPercent(
+                      participant.paragraphIndex,
+                      readingUnits.length,
+                    );
 
-                  return (
-                    <div
-                      key={participant.id}
-                      className="absolute top-[-8px] flex  flex-col items-center"
-                      style={{
-                        right: `${percent}%`,
-                      }}
-                      title={`${participant.name}：${
-                        participant.paragraphIndex + 1
-                      }区切り目`}
-                    >
-                      <div className="h-9 w-[3px] rounded-full bg-blue-400" />
-
-                      <div className="mt-1 max-w-14 truncate text-[0.6rem] text-gray-500">
-                        {getDisplayName(participant.name)}
+                    return (
+                      <div
+                        key={participant.id}
+                        className="absolute top-[-8px] flex flex-col items-center"
+                        style={{
+                          left: `${100 - percent}%`,
+                          transform: "translateX(-50%)",
+                        }}
+                        title={`${participant.name}：${
+                          participant.paragraphIndex + 1
+                        }区切り目`}
+                      >
+                        <div className="h-9 w-[3px] rounded-full bg-blue-400" />
+                        <div className="mt-1 max-w-14 truncate text-[0.6rem] text-gray-500">
+                          {getDisplayName(participant.name)}
+                        </div>
                       </div>
+                    );
+                  })}
+
+                {participantId && readingUnits.length > 0 && (
+                  <div
+                    className="absolute top-[-8px] flex flex-col items-center"
+                    style={{
+                      left: `calc(100% - ${
+                        readingUnits.length <= 1
+                          ? 0
+                          : (currentParagraphIndex /
+                              (readingUnits.length - 1)) *
+                            100
+                      }%)`,
+                      transform: "translateX(-50%)",
+                    }}
+                    title={`自分：${currentParagraphIndex + 1}区切り目`}
+                  >
+                    <div className="h-9 w-[3px] rounded-full bg-blue-400" />
+                    <div className="mt-1 max-w-14 truncate text-[0.6rem] text-gray-500">
+                      {getDisplayName(username || "asuma")}
                     </div>
-                  );
-                })}
+                  </div>
+                )}
 
                 {visibleReactions.map((reaction, index) => {
                   if (reaction.paragraphIndex > currentParagraphIndex) {
@@ -5162,6 +5364,7 @@ if (readingSessionIdRef.current) {
                       className="absolute bottom-[-4px] h-3 w-3  rounded-full bg-pink-400"
                       style={{
                         right: `${percent}%`,
+                        transform: "translateX(0)",
                       }}
                       title={`${reaction.emoji} ${
                         reaction.paragraphIndex + 1
@@ -5874,20 +6077,47 @@ if (readingSessionIdRef.current) {
 
                     {loadMode === "preset" && (
                       <select
-                        value={selectedStory}
+                        value={
+                          hasSelectedWork
+                            ? currentWork.type === "url"
+                              ? `url:${currentWork.workId}`
+                              : `preset:${selectedStory}`
+                            : ""
+                        }
                         onChange={(event) => {
-                          void handleSelectPresetStory(
-                            event.target.value as StoryKey,
-                          );
+                          void handleSelectRegisteredWork(event.target.value);
                           setMobilePanel(null);
                         }}
                         className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none"
                       >
+                        <option value="" disabled>
+                          作品を選択してください
+                        </option>
+
                         {Object.entries(stories).map(([key, story]) => (
-                          <option key={key} value={key}>
+                          <option
+                            key={`preset:${key}`}
+                            value={`preset:${key}`}
+                          >
                             {story.title}
                           </option>
                         ))}
+
+                        {registeredUrlWorks.map((work) => {
+                      const progress = userReadingProgresses.find(
+                        (item) => item.workId === work.workId,
+                      );
+
+                      return (
+                        <option
+                          key={`url:${work.workId}`}
+                          value={`url:${work.workId}`}
+                        >
+                          {work.title} ／ {work.author}{" "}
+                          {progress ? `（${progress.percent}%）` : "（未読）"}
+                        </option>
+                      );
+                    })}
                       </select>
                     )}
 
