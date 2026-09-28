@@ -14,6 +14,7 @@ export const stories = {
     title: "吾輩は猫である",
     author: "夏目漱石",
     textFile: `${BASE_PATH}/texts/wagahaiwa_nekodearu.txt`,
+    textSource: "aozora" as const,
     paragraphs: [],
   },
 
@@ -21,6 +22,7 @@ export const stories = {
     title: "だしの取り方",
     author: "北大路魯山人",
     textFile: `${BASE_PATH}/texts/dashi.txt`,
+    textSource: "aozora" as const,
     paragraphs: [],
   },
 
@@ -28,6 +30,7 @@ export const stories = {
     title: "白昼夢",
     author: "江戸川乱歩",
     textFile: `${BASE_PATH}/texts/hakuchumu.txt`,
+    textSource: "aozora" as const,
     paragraphs: [],
   },
 
@@ -35,6 +38,7 @@ export const stories = {
     title: "In The Megachurch",
     author: "朝井リョウ",
     textFile: `${BASE_PATH}/texts/megachurch.txt`,
+    textSource: "ocr" as const,
     paragraphs: [],
   },
 };
