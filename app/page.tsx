@@ -517,7 +517,7 @@ function getPercent(index: number, count: number) {
 function getMapPercent(index: number, count: number) {
   if (count <= 1) return 0;
 
-  return Math.round(100 - (index / (count - 1)) * 100);
+  return Math.round((index / (count - 1)) * 100);
 }
 
 function getDisplayName(name: string) {
@@ -943,7 +943,7 @@ function cleanAozoraText(
   return paragraphs;
 }
 
-const SENTENCE_TERMINATOR_CHARS = new Set(["。", "！", "？", "!", "?"]);
+const SENTENCE_TERMINATOR_CHARS = new Set(["。"]);
 const SENTENCE_CLOSING_MARKS = new Set(["」", "』", "】", "）", ")"]);
 
 function splitIntoSentences(rawText: string) {
@@ -982,10 +982,6 @@ function splitIntoSentences(rawText: string) {
       continue;
     }
 
-    // 「おはよう」 のように句点なしで閉じ括弧で終わる会話文も1文として扱う。
-    if (SENTENCE_CLOSING_MARKS.has(char)) {
-      pushSentence();
-    }
   }
 
   if (buffer.trim()) {
@@ -3869,7 +3865,7 @@ useEffect(() => {
 
   const getFocusY = (areaRect: DOMRect) => {
     // 横書き縦スクロールでは、画面中央より少し上を現在位置の基準にする。
-    return areaRect.top + areaRect.height * 0.42;
+    return areaRect.top + areaRect.height * 0.25;
   };
 
   // リロード復元時に、保存された読書単位を確実に画面内へ戻す。
@@ -4088,6 +4084,7 @@ useEffect(() => {
     let animationId = 0;
     let lastTime = performance.now();
     let virtualScrollLeft = readingArea.scrollLeft;
+    let virtualScrollTop = readingArea.scrollTop;
 
     const updateReadingPositionForOthers = () => {
       const areaRect = readingArea.getBoundingClientRect();
@@ -4137,11 +4134,8 @@ useEffect(() => {
       lastTime = now;
 
       if (layoutMode === "horizontal") {
-        readingArea.scrollBy({
-          top: AUTO_SCROLL_SPEED * deltaTime,
-          left: 0,
-          behavior: "auto",
-        });
+        virtualScrollTop += AUTO_SCROLL_SPEED * deltaTime;
+        readingArea.scrollTop = virtualScrollTop;
       } else {
         virtualScrollLeft -= AUTO_SCROLL_SPEED * deltaTime;
         readingArea.scrollLeft = virtualScrollLeft;
