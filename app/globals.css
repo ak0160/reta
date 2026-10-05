@@ -977,3 +977,86 @@ rt {
     rotate: -2.5deg;
   }
 }
+
+/* ===== ReTA simple heading style ===== */
+/* 見出しは本文より少し大きくするだけ。背景・囲みは使用しない。 */
+.reading-heading-unit {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  font-size: 1.12em !important;
+  font-weight: 600 !important;
+  padding: 0 !important;
+}
+
+.reading-heading-unit::before,
+.reading-heading-unit::after {
+  display: none !important;
+  content: none !important;
+}
+
+.reading-heading-unit .reading-unit-inner,
+.reading-heading-unit .horizontal-reading-unit-inner {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  padding: 0 !important;
+}
+
+.reading-heading-unit.is-active {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ===== ReTA heading final layout fix ===== */
+/* 見出しは本文より少し大きく・太くするだけ */
+.reading-heading-unit {
+  display: block !important;
+  align-items: initial !important;
+  justify-content: initial !important;
+
+  min-width: 0 !important;
+  min-height: 0 !important;
+
+  margin: 0 !important;
+  margin-inline: 0 !important;
+  margin-block: 0 !important;
+
+  padding: 0 !important;
+
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+
+  color: inherit !important;
+
+  font-size: 1.12em !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+}
+
+.reading-heading-unit.is-active {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.reading-heading-unit .reading-unit-inner,
+.reading-heading-unit .horizontal-reading-unit-inner {
+  display: inline !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  letter-spacing: inherit !important;
+  padding: 0 !important;
+}
