@@ -127,8 +127,8 @@ type ReadingEvent = {
   reactionComment?: string;
 };
 type LayoutMode = "normal" | "grouped" | "horizontal";
-type LoadMode = "preset" | "url";
-type WorkType = "preset" | "url";
+type LoadMode = "preset" | "url" | "text";
+type WorkType = "preset" | "url" | "text";
 
 type CurrentWork = {
   workId: string;
@@ -179,6 +179,7 @@ type UserReadingProgress = {
   percent: number;
   scrollLeft: number;
   scrollTop: number;
+  bookmarks: (number | null)[];
   updatedAt: number;
 };
 
@@ -266,6 +267,14 @@ function createUrlWorkId(sourceUrl: string) {
 
 function createPresetWorkId(storyKey: StoryKey) {
   return `preset_${storyKey}`;
+}
+
+function createTextWorkId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return `text_${crypto.randomUUID()}`;
+  }
+
+  return `text_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 function createPresetWork(storyKey: StoryKey): CurrentWork {
@@ -594,7 +603,9 @@ function normalizeReaction(raw: Record<string, unknown>): Reaction {
     workTitle: typeof raw.workTitle === "string" ? raw.workTitle : undefined,
     workAuthor: typeof raw.workAuthor === "string" ? raw.workAuthor : undefined,
     workType:
-      raw.workType === "preset" || raw.workType === "url"
+      raw.workType === "preset" ||
+      raw.workType === "url" ||
+      raw.workType === "text"
         ? raw.workType
         : undefined,
     sourceUrl: typeof raw.sourceUrl === "string" ? raw.sourceUrl : undefined,
@@ -622,7 +633,12 @@ function normalizeUserReadingProgress(
       : "normal";
 
   const rawWorkType = raw.workType;
-  const workType: WorkType = rawWorkType === "url" ? "url" : "preset";
+  const workType: WorkType =
+    rawWorkType === "url"
+      ? "url"
+      : rawWorkType === "text"
+        ? "text"
+        : "preset";
 
   const rawStoryKey = raw.storyKey;
   const storyKey = isStoryKey(rawStoryKey) ? rawStoryKey : "";
@@ -650,6 +666,21 @@ function normalizeUserReadingProgress(
     percent: Number(raw.percent ?? 0),
     scrollLeft: Number(raw.scrollLeft ?? 0),
     scrollTop: Number(raw.scrollTop ?? 0),
+    bookmarks: (() => {
+      const rawBookmarks = raw.bookmarks;
+
+      if (!Array.isArray(rawBookmarks)) {
+        return [null, null, null, null];
+      }
+
+      return [0, 1, 2, 3].map((index) => {
+        const value = rawBookmarks[index];
+
+        return typeof value === "number" && Number.isFinite(value)
+          ? Math.max(0, Math.floor(value))
+          : null;
+      });
+    })(),
     updatedAt: Number(raw.updatedAt ?? 0),
   };
 }
@@ -751,25 +782,57 @@ function isChapterHeading(line: string) {
   const trimmedLine = line.trim();
   if (!trimmedLine) return false;
 
-  // 句読点や括弧を含む行は本文の可能性が高いため、子見出しにしない。
-  if (HEADING_EXCLUDED_MARKS.test(trimmedLine)) return false;
-
-  // 1, 2, 15 のような数字のみ。
-  if (/^\d+$/.test(trimmedLine)) return true;
-
-  // 一、二、三などの青空文庫の章番号。
-  if (KANJI_NUMERAL_PATTERN.test(trimmedLine)) return true;
-
-  // 5武藤澄香 / 5 武藤澄香 / 12 函館未来 など。
-  if (/^\d+\s*\S/.test(trimmedLine)) {
-    const headingBody = trimmedLine.replace(/^\d+\s*/, "").replace(/\s+/g, "");
-    return headingBody.length > 0 && headingBody.length <= HEADING_MAX_LENGTH;
-  }
-
-  // 第1章 / 第5話 / 第10節 / 第2編 など。
-  if (/^第[0-9０-９一二三四五六七八九十百千]+[章話節編部]$/.test(trimmedLine)) {
+  // 第1章 / 第１章 / 第2章 萌から推しへ /
+  // 第３章ループものから転生ものへ、など。
+  if (
+    /^第[0-9０-９一二三四五六七八九十百千]+[章話節編部](?:[　 ]*[^、。！？!?「」『』【】（）()]*)?$/.test(
+      trimmedLine,
+    )
+  ) {
     return true;
   }
+
+  // まえがき・あとがき・終章。
+  if (
+    /^(まえがき|あとがき|終章)(?:[　 —―ー～〜:：].*)?$/.test(
+      trimmedLine,
+    )
+  ) {
+    return true;
+  }
+
+  // 青空文庫で使われる「一」「二」などの章番号。
+  if (KANJI_NUMERAL_PATTERN.test(trimmedLine)) {
+    return true;
+  }
+
+  // 「5 武藤澄香」のような
+  // 「数字 + 短い名前・見出し」の独立行。
+  //
+  // 数字の直後に年・月・人などの単位が来る本文や、
+  // 句読点・括弧を含む文章は除外する。
+  const numberedShortHeading = trimmedLine.match(
+    /^(\d{1,3})[　 ]+([^、。！？!?「」『』【】（）()0-9]{1,12})$/,
+  );
+
+  if (numberedShortHeading) {
+    const headingBody = numberedShortHeading[2].trim();
+
+    const looksLikeNumericBody =
+      /^(?:年|月|日|歳|人|回|個|円|時|分|秒|ページ|％|%)/.test(
+        headingBody,
+      );
+
+    if (!looksLikeNumericBody) {
+      return true;
+    }
+  }
+
+  // OCR本では
+  // 「22 IM961Sで主人公の装備品...」
+  // 「10001000 投稿件数...」
+  // のような図表内文字があるため、
+  // 数字から始まるだけでは見出し扱いしない。
 
   return false;
 }
@@ -860,6 +923,18 @@ function cleanAozoraText(
     const key = normalizeForCompare(line);
 
     if (!key) return true;
+
+    // OCRで本の冒頭に混入した著者名の英字表記は本文に表示しない。
+    // 先頭付近だけを対象にし、本文中の英字には影響させない。
+    if (
+      index <= 8 &&
+      /^(?:m+i+yake\s*kaho|miyake\s*kaho)$/i.test(
+        line.replace(/[　 _.-]/g, ""),
+      )
+    ) {
+      return true;
+    }
+
     if (isChapterHeading(line)) return false;
 
     // 1・2行目はすでに削除しているが、青空文庫などで本文側に再出現する場合だけ除外する。
@@ -903,20 +978,42 @@ function cleanAozoraText(
     );
 
     if (headingWithBody) {
-      flushBuffer();
+      const headingNumber = headingWithBody[1];
+      const headingBody = headingWithBody[2].trim();
 
-      const headingText = normalizeHeadingText(
-        `${headingWithBody[1]} ${headingWithBody[2]}`,
-      );
+      // 「2005年に『〜』」「3人が『〜』」などの通常文は
+      // 番号付き見出しとして扱わない。
+      const looksLikeNormalNumericSentence =
+        /^(?:年|月|日|歳|人|回|個|円|時|分|秒|ページ|％|%)/.test(
+          headingBody,
+        );
 
-      paragraphs.push({
-        text: headingText,
-        isHeading: true,
-      });
+      if (!looksLikeNormalNumericSentence) {
+        flushBuffer();
 
-      line = line.slice(headingWithBody[0].length).trim();
+        const headingText = normalizeHeadingText(
+          `${headingNumber} ${headingBody}`,
+        );
 
-      if (!line) return;
+        paragraphs.push({
+          text: headingText,
+          isHeading: true,
+        });
+
+        // 見出しの後ろに続いている本文は、
+        // 見出しとは完全に別のParagraphとして確定する。
+        const remainingBody = line
+          .slice(headingWithBody[0].length)
+          .trim();
+
+        if (remainingBody) {
+          paragraphs.push({
+            text: remainingBody,
+          });
+        }
+
+        return;
+      }
     }
 
     if (isChapterHeading(line)) {
@@ -1052,6 +1149,23 @@ type RegisteredUrlWork = {
   title: string;
   author: string;
   sourceUrl: string;
+};
+
+type RegisteredTextWork = {
+  workId: string;
+  title: string;
+  author: string;
+};
+
+type StoredTextWork = {
+  workId: string;
+  type: "text";
+  title: string;
+  author: string;
+  sourceUrl: string;
+  rawText: string;
+  ownerId: string;
+  updatedAt: number;
 };
 
 type AozoraSearchBook = {
@@ -1374,6 +1488,15 @@ export default function Home() {
   const [registeredUrlWorks, setRegisteredUrlWorks] = useState<
     RegisteredUrlWork[]
   >([]);
+  const [registeredTextWorks, setRegisteredTextWorks] = useState<
+    RegisteredTextWork[]
+  >([]);
+  const [textUploadTitle, setTextUploadTitle] = useState("");
+  const [textUploadAuthor, setTextUploadAuthor] = useState("");
+  const [textUploadContent, setTextUploadContent] = useState("");
+  const [textUploadFileName, setTextUploadFileName] = useState("");
+  const [isSavingTextWork, setIsSavingTextWork] = useState(false);
+  const [textUploadError, setTextUploadError] = useState("");
   const [customTitle, setCustomTitle] = useState("");
   const [customAuthor, setCustomAuthor] = useState("");
   const [isLoadingAozora, setIsLoadingAozora] = useState(false);
@@ -1417,6 +1540,23 @@ export default function Home() {
   const [autoSpeed, setAutoSpeed] = useState(17);
   const [readingProgressNotice, setReadingProgressNotice] = useState("");
   const [returnIndex, setReturnIndex] = useState<number | null>(null);
+
+  // 作品内でいつでも戻れる読書位置。最大4か所。
+  const [bookmarks, setBookmarks] = useState<(number | null)[]>([
+    null,
+    null,
+    null,
+    null,
+  ]);
+
+  // Firestore保存や連続操作では、常に最新の読書位置を参照する。
+  const bookmarksRef = useRef<(number | null)[]>([
+    null,
+    null,
+    null,
+    null,
+  ]);
+
   const [mobilePanel, setMobilePanel] = useState<
     "controls" | "reaction" | "more" | null
   >(null);
@@ -2163,6 +2303,24 @@ void saveReadingEvent("layout_change").catch((error) => {
       .sort((a, b) => a.title.localeCompare(b.title, "ja"));
 
     setRegisteredUrlWorks(urlWorks);
+
+    const textWorks = userReadingProgresses
+      .filter(
+        (progress) =>
+          progress.workType === "text" &&
+          progress.workId.trim() !== "",
+      )
+      .map(
+        (progress) =>
+          ({
+            workId: progress.workId,
+            title: progress.title,
+            author: progress.author,
+          }) satisfies RegisteredTextWork,
+      )
+      .sort((a, b) => a.title.localeCompare(b.title, "ja"));
+
+    setRegisteredTextWorks(textWorks);
   }, [authUser, userReadingProgresses]);
 
   const rememberRecentAozoraBook = (book: AozoraSearchBook) => {
@@ -2250,6 +2408,229 @@ void saveReadingEvent("layout_change").catch((error) => {
       });
     });
   };
+
+  const openStoredTextWork = async (
+    workId: string,
+    preservePendingRestore = false,
+  ) => {
+    if (!authUser) {
+      throw new Error("ログインしてください");
+    }
+
+    const workSnap = await getDoc(doc(db, "works", workId));
+
+    if (!workSnap.exists()) {
+      throw new Error("TXT作品が見つかりませんでした");
+    }
+
+    const data = workSnap.data() as Partial<StoredTextWork>;
+
+    if (data.type !== "text" || typeof data.rawText !== "string") {
+      throw new Error("TXT作品のデータが正しくありません");
+    }
+
+    if (data.ownerId && data.ownerId !== authUser.uid) {
+      throw new Error("このTXT作品を開く権限がありません");
+    }
+
+    const title =
+      typeof data.title === "string" && data.title.trim()
+        ? data.title.trim()
+        : "作品名なし";
+
+    const author =
+      typeof data.author === "string" && data.author.trim()
+        ? data.author.trim()
+        : "作者不明";
+
+    const textWork: CurrentWork = {
+      workId,
+      type: "text",
+      title,
+      author,
+      sourceUrl: "",
+    };
+
+    const cleanedParagraphs = cleanAozoraText(
+      data.rawText,
+      title,
+      author,
+      "ocr",
+    );
+
+    if (cleanedParagraphs.length === 0) {
+      throw new Error("TXT本文を整形できませんでした");
+    }
+
+    setLoadMode("text");
+    setCurrentWork(textWork);
+    currentWorkRef.current = textWork;
+    setCustomTitle(title);
+    setCustomAuthor(author);
+    setParagraphs(cleanedParagraphs);
+    setSelectedWord("");
+    setSearchWord("");
+    setWikiMeaning("");
+    setIsAutoScroll(false);
+    setReturnIndex(null);
+    paragraphRefs.current = [];
+
+    if (preservePendingRestore) {
+      return;
+    }
+
+    setCurrentParagraphIndex(0);
+    currentParagraphIndexRef.current = 0;
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollToFocus(0, layoutModeRef.current);
+
+        window.setTimeout(() => {
+          isRestoringProgressRef.current = false;
+          isProgrammaticScrollRef.current = false;
+          isInitialProgressResolvedRef.current = true;
+          lastStableParagraphIndexRef.current = 0;
+        }, 300);
+      });
+    });
+  };
+
+
+  const handleSaveTextWork = async () => {
+    if (!authUser) {
+      setTextUploadError("ログインしてください");
+      return;
+    }
+
+    const title = textUploadTitle.trim();
+    const author = textUploadAuthor.trim();
+    const rawText = textUploadContent.trim();
+
+    if (!rawText) {
+      setTextUploadError("TXTファイルを選択してください");
+      return;
+    }
+
+    if (!title) {
+      setTextUploadError("作品名を入力してください");
+      return;
+    }
+
+    if (!author) {
+      setTextUploadError("著者名を入力してください");
+      return;
+    }
+
+    setIsSavingTextWork(true);
+    setTextUploadError("");
+
+    try {
+      const workId = createTextWorkId();
+
+      const storedWork: StoredTextWork = {
+        workId,
+        type: "text",
+        title,
+        author,
+        sourceUrl: "",
+        rawText,
+        ownerId: authUser.uid,
+        updatedAt: Date.now(),
+      };
+
+      await setDoc(doc(db, "works", workId), storedWork);
+
+      const textWork: CurrentWork = {
+        workId,
+        type: "text",
+        title,
+        author,
+        sourceUrl: "",
+      };
+
+      setRegisteredTextWorks((current) =>
+        [
+          ...current,
+          {
+            workId,
+            title,
+            author,
+          },
+        ].sort((a, b) => a.title.localeCompare(b.title, "ja")),
+      );
+
+      setHasSelectedWork(true);
+      hasSelectedWorkRef.current = true;
+
+      pendingResumeProgressRef.current = null;
+      pendingFreshStartWorkIdRef.current = workId;
+      isRestoringProgressRef.current = true;
+
+      setCurrentWork(textWork);
+      currentWorkRef.current = textWork;
+
+      await openStoredTextWork(workId, true);
+
+      setTextUploadContent("");
+      setTextUploadFileName("");
+      setTextUploadTitle("");
+      setTextUploadAuthor("");
+    } catch (error) {
+      console.error("TXT作品保存失敗", error);
+
+      setTextUploadError(
+        error instanceof Error
+          ? error.message
+          : "TXT作品の保存に失敗しました",
+      );
+    } finally {
+      setIsSavingTextWork(false);
+    }
+  };
+
+
+  const handleTextFileChange = async (
+    file: File | null,
+  ) => {
+    if (!file) return;
+
+    setTextUploadError("");
+
+    try {
+      const content = await file.text();
+
+      if (!content.trim()) {
+        throw new Error("TXTファイルが空です");
+      }
+
+      const normalized = content
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n");
+
+      const lines = normalized.split("\n");
+
+      setTextUploadContent(normalized);
+      setTextUploadFileName(file.name);
+
+      if (!textUploadTitle.trim() && lines[0]?.trim()) {
+        setTextUploadTitle(lines[0].trim());
+      }
+
+      if (!textUploadAuthor.trim() && lines[1]?.trim()) {
+        setTextUploadAuthor(lines[1].trim());
+      }
+    } catch (error) {
+      console.error("TXT読み込み失敗", error);
+
+      setTextUploadError(
+        error instanceof Error
+          ? error.message
+          : "TXTファイルを読み込めませんでした",
+      );
+    }
+  };
+
 
   const handleSearchAozoraBooks = async () => {
     const keyword = aozoraSearchQuery.trim();
@@ -2361,6 +2742,62 @@ void saveReadingEvent("layout_change").catch((error) => {
       return;
     }
 
+    if (value.startsWith("text:")) {
+      const workId = value.slice("text:".length);
+
+      const work = registeredTextWorks.find(
+        (registeredWork) => registeredWork.workId === workId,
+      );
+
+      if (!work) return;
+
+      setHasSelectedWork(true);
+      hasSelectedWorkRef.current = true;
+      setIsAutoScroll(false);
+      setReturnIndex(null);
+      setSelectedWord("");
+      setSearchWord("");
+      setWikiMeaning("");
+      setTextUploadError("");
+      isRestoringProgressRef.current = true;
+
+      try {
+        const savedProgress =
+          await loadReadingProgressFromFirestore(workId);
+
+        if (savedProgress) {
+          pendingResumeProgressRef.current = savedProgress;
+          pendingFreshStartWorkIdRef.current = null;
+          setLayoutMode(savedProgress.layoutMode);
+          layoutModeRef.current = savedProgress.layoutMode;
+        } else {
+          pendingResumeProgressRef.current = null;
+          pendingFreshStartWorkIdRef.current = workId;
+        }
+
+        if (
+          readingSessionIdRef.current &&
+          currentWorkRef.current.workId !== workId
+        ) {
+          await endReadingSession();
+        }
+
+        await openStoredTextWork(workId, true);
+      } catch (error) {
+        console.error("TXT作品読み込み失敗", error);
+
+        setTextUploadError(
+          error instanceof Error
+            ? error.message
+            : "TXT作品の読み込みに失敗しました",
+        );
+
+        isRestoringProgressRef.current = false;
+      }
+
+      return;
+    }
+
     if (value.startsWith("url:")) {
       const workId = value.slice("url:".length);
       const work = registeredUrlWorks.find(
@@ -2465,6 +2902,16 @@ void saveReadingEvent("layout_change").catch((error) => {
       );
 
       if (!progressSnap.exists()) {
+        const emptyBookmarks: (number | null)[] = [
+          null,
+          null,
+          null,
+          null,
+        ];
+
+        bookmarksRef.current = emptyBookmarks;
+        setBookmarks(emptyBookmarks);
+
         return null;
       }
 
@@ -2486,8 +2933,24 @@ void saveReadingEvent("layout_change").catch((error) => {
         ),
       );
 
+      const restoredBookmarks = progress.bookmarks.map((bookmark) =>
+        bookmark === null
+          ? null
+          : Math.max(
+              0,
+              Math.min(
+                bookmark,
+                Math.max(0, progress.readingUnitsLength - 1),
+              ),
+            ),
+      );
+
+      bookmarksRef.current = restoredBookmarks;
+      setBookmarks(restoredBookmarks);
+
       return {
         ...progress,
+        bookmarks: restoredBookmarks,
         docId: progressSnap.id,
         currentParagraphIndex: safeIndex,
         percent: getDisplayPercent(
@@ -4413,6 +4876,102 @@ if (readingSessionIdRef.current) {
     showReadingProgressNotice("元の位置へ戻りました");
   };
 
+  const saveBookmarksToFirestore = (
+    nextBookmarks: (number | null)[],
+  ) => {
+    if (!authUser) return;
+    if (!hasSelectedWorkRef.current) return;
+
+    const activeWork =
+      currentWorkRef.current ??
+      getFallbackCurrentWork(selectedStoryRef.current);
+
+    if (!activeWork?.workId) return;
+
+    const progressDocId = `${authUser.uid}_${activeWork.workId}`;
+
+    void setDoc(
+      doc(db, "readingProgress", progressDocId),
+      {
+        userId: authUser.uid,
+        username: usernameRef.current || "名前なし",
+        workId: activeWork.workId,
+        workType: activeWork.type,
+        title: activeWork.title,
+        author: activeWork.author,
+        sourceUrl: activeWork.sourceUrl,
+        storyKey:
+          activeWork.type === "preset"
+            ? selectedStoryRef.current
+            : "",
+        bookmarks: nextBookmarks,
+        updatedAt: Date.now(),
+      },
+      { merge: true },
+    ).catch((error) => {
+      console.error("Firestoreへの読書位置保存失敗", error);
+    });
+  };
+
+  const handleSaveBookmark = (slotIndex: number) => {
+    if (readingUnits.length <= 0) return;
+    if (slotIndex < 0 || slotIndex >= 4) return;
+
+    const safeIndex = Math.max(
+      0,
+      Math.min(
+        currentParagraphIndexRef.current,
+        readingUnits.length - 1,
+      ),
+    );
+
+    const nextBookmarks = [...bookmarksRef.current];
+    nextBookmarks[slotIndex] = safeIndex;
+
+    bookmarksRef.current = nextBookmarks;
+    setBookmarks(nextBookmarks);
+    saveBookmarksToFirestore(nextBookmarks);
+
+    showReadingProgressNotice(
+      `読書位置${slotIndex + 1}を保存しました`,
+    );
+  };
+
+  const handleMoveToBookmark = (slotIndex: number) => {
+    if (slotIndex < 0 || slotIndex >= 4) return;
+
+    const savedIndex = bookmarksRef.current[slotIndex];
+
+    if (savedIndex === null || savedIndex === undefined) return;
+    if (readingUnits.length <= 0) return;
+
+    const targetIndex = Math.max(
+      0,
+      Math.min(savedIndex, readingUnits.length - 1),
+    );
+
+    moveToParagraph(targetIndex, layoutModeRef.current);
+
+    showReadingProgressNotice(
+      `読書位置${slotIndex + 1}へ移動しました`,
+    );
+  };
+
+  const handleDeleteBookmark = (slotIndex: number) => {
+    if (slotIndex < 0 || slotIndex >= 4) return;
+
+    const nextBookmarks = [...bookmarksRef.current];
+    nextBookmarks[slotIndex] = null;
+
+    bookmarksRef.current = nextBookmarks;
+    setBookmarks(nextBookmarks);
+    saveBookmarksToFirestore(nextBookmarks);
+
+    showReadingProgressNotice(
+      `読書位置${slotIndex + 1}を削除しました`,
+    );
+  };
+
   const handleParagraphClick = (index: number) => {
     moveToParagraph(index, layoutMode);
   };
@@ -4891,6 +5450,7 @@ if (readingSessionIdRef.current) {
                   {[
                     ["preset", "マイライブラリ"],
                     ["url", "青空文庫URL"],
+                    ["text", "TXT追加"],
                   ].map(([mode, label]) => (
                     <button
                       key={mode}
@@ -4955,7 +5515,107 @@ if (readingSessionIdRef.current) {
                         </option>
                       );
                     })}
+
+                    {registeredTextWorks.map((work) => {
+                      const progress = userReadingProgresses.find(
+                        (item) => item.workId === work.workId,
+                      );
+
+                      return (
+                        <option
+                          key={`text:${work.workId}`}
+                          value={`text:${work.workId}`}
+                        >
+                          {work.title} ／ {work.author}{" "}
+                          {progress ? `（${progress.percent}%）` : "（未読）"}
+                        </option>
+                      );
+                    })}
+
                   </select>
+                )}
+
+                {loadMode === "text" && (
+                  <div className="grid gap-3">
+                    <label className="grid gap-2">
+                      <span className="text-xs font-bold text-gray-600">
+                        TXTファイル
+                      </span>
+
+                      <input
+                        type="file"
+                        accept=".txt,text/plain"
+                        onChange={(event) => {
+                          void handleTextFileChange(
+                            event.target.files?.[0] ?? null,
+                          );
+                        }}
+                        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm"
+                      />
+                    </label>
+
+                    {textUploadFileName && (
+                      <p className="text-xs font-semibold text-gray-500">
+                        選択中：{textUploadFileName}
+                      </p>
+                    )}
+
+                    <label className="grid gap-2">
+                      <span className="text-xs font-bold text-gray-600">
+                        作品名
+                      </span>
+
+                      <input
+                        type="text"
+                        value={textUploadTitle}
+                        onChange={(event) =>
+                          setTextUploadTitle(event.target.value)
+                        }
+                        placeholder="作品名"
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+                      />
+                    </label>
+
+                    <label className="grid gap-2">
+                      <span className="text-xs font-bold text-gray-600">
+                        著者名
+                      </span>
+
+                      <input
+                        type="text"
+                        value={textUploadAuthor}
+                        onChange={(event) =>
+                          setTextUploadAuthor(event.target.value)
+                        }
+                        placeholder="著者名"
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+                      />
+                    </label>
+
+                    {textUploadError && (
+                      <p className="text-xs font-bold text-red-500">
+                        {textUploadError}
+                      </p>
+                    )}
+
+                    <button
+                      type="button"
+                      disabled={
+                        isSavingTextWork ||
+                        !textUploadContent.trim() ||
+                        !textUploadTitle.trim() ||
+                        !textUploadAuthor.trim()
+                      }
+                      onClick={() => {
+                        void handleSaveTextWork();
+                      }}
+                      className="rounded-xl bg-gray-950 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {isSavingTextWork
+                        ? "追加中..."
+                        : "マイライブラリに追加"}
+                    </button>
+                  </div>
                 )}
 
                 {loadMode === "url" && (
@@ -5483,22 +6143,72 @@ if (readingSessionIdRef.current) {
                 </div>
               </details>
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={handleMarkReturnPoint}
-                  className="rounded-xl bg-gray-100 px-3 py-2.5 text-xs font-bold text-gray-700 transition hover:bg-gray-200"
-                >
-                  ここに戻る
-                </button>
-                <button
-                  type="button"
-                  onClick={handleReturnToSavedIndex}
-                  disabled={returnIndex === null}
-                  className="rounded-xl bg-[#f3cf7a] px-3 py-2.5 text-xs font-bold text-gray-800 transition disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  元の位置へ
-                </button>
+              <div className="mt-4 border-t border-gray-100 pt-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[0.68rem] font-bold text-gray-500">
+                    読書位置
+                  </span>
+                  <span className="text-[0.6rem] text-gray-400">
+                    最大4か所
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-1.5">
+                  {bookmarks.map((bookmark, slotIndex) => {
+                    const hasBookmark = bookmark !== null;
+
+                    const percent =
+                      hasBookmark && readingUnits.length > 0
+                        ? getDisplayPercent(
+                            Math.max(
+                              0,
+                              Math.min(bookmark, readingUnits.length - 1),
+                            ),
+                            readingUnits.length,
+                          )
+                        : null;
+
+                    return (
+                      <div
+                        key={`bookmark-desktop-${slotIndex}`}
+                        className="relative"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (hasBookmark) {
+                              handleMoveToBookmark(slotIndex);
+                            } else {
+                              handleSaveBookmark(slotIndex);
+                            }
+                          }}
+                          className={`w-full rounded-xl px-1 py-2.5 text-center text-xs font-bold transition ${
+                            hasBookmark
+                              ? "bg-[#fff3d6] text-[#8b5d1e] hover:bg-[#fbe8b8]"
+                              : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                          }`}
+                        >
+                          {hasBookmark ? `${percent}%` : "＋"}
+                        </button>
+
+                        {hasBookmark && (
+                          <button
+                            type="button"
+                            aria-label={`読書位置${slotIndex + 1}を削除`}
+                            title={`読書位置${slotIndex + 1}を削除`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteBookmark(slotIndex);
+                            }}
+                            className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-gray-200 bg-white text-[0.55rem] font-bold text-gray-400 shadow-sm transition hover:text-gray-700"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -5853,22 +6563,71 @@ if (readingSessionIdRef.current) {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={handleMarkReturnPoint}
-                    className="rounded-xl bg-gray-100 px-3 py-3 text-sm font-bold text-gray-700"
-                  >
-                    ここに戻る
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleReturnToSavedIndex}
-                    disabled={returnIndex === null}
-                    className="rounded-xl bg-[#f3cf7a] px-3 py-3 text-sm font-bold text-gray-800 disabled:opacity-35"
-                  >
-                    元の位置へ
-                  </button>
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-black text-gray-500">
+                      読書位置
+                    </span>
+                    <span className="text-[0.65rem] text-gray-400">
+                      最大4か所
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    {bookmarks.map((bookmark, slotIndex) => {
+                      const hasBookmark = bookmark !== null;
+
+                      const percent =
+                        hasBookmark && readingUnits.length > 0
+                          ? getDisplayPercent(
+                              Math.max(
+                                0,
+                                Math.min(bookmark, readingUnits.length - 1),
+                              ),
+                              readingUnits.length,
+                            )
+                          : null;
+
+                      return (
+                        <div
+                          key={`bookmark-mobile-${slotIndex}`}
+                          className="relative"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (hasBookmark) {
+                                handleMoveToBookmark(slotIndex);
+                              } else {
+                                handleSaveBookmark(slotIndex);
+                              }
+                            }}
+                            className={`w-full rounded-xl px-1 py-3 text-sm font-black ${
+                              hasBookmark
+                                ? "bg-[#fff3d6] text-[#8b5d1e]"
+                                : "bg-gray-100 text-gray-400"
+                            }`}
+                          >
+                            {hasBookmark ? `${percent}%` : "＋"}
+                          </button>
+
+                          {hasBookmark && (
+                            <button
+                              type="button"
+                              aria-label={`読書位置${slotIndex + 1}を削除`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteBookmark(slotIndex);
+                              }}
+                              className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-gray-200 bg-white text-[0.65rem] font-bold text-gray-400 shadow-sm"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
