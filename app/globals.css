@@ -1374,7 +1374,7 @@ rt {
 
 .reta-book-cover {
   z-index: 50 !important;
-  animation: reta-brrrr-cover .55s cubic-bezier(.48,.02,.18,1) .35s forwards !important;
+  animation: reta-brrrr-cover .55s cubic-bezier(.48,.02,.18,1) .80s forwards !important;
 }
 
 .reta-flip-paper {
@@ -1399,126 +1399,126 @@ rt {
 
 .reta-flip-paper-1 {
   z-index: 39;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 0.920s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.250s forwards;
 }
 
 .reta-flip-paper-2 {
   z-index: 38;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 0.950s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.272s forwards;
 }
 
 .reta-flip-paper-3 {
   z-index: 37;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 0.980s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.294s forwards;
 }
 
 .reta-flip-paper-4 {
   z-index: 36;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.010s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.316s forwards;
 }
 
 .reta-flip-paper-5 {
   z-index: 35;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.040s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.338s forwards;
 }
 
 .reta-flip-paper-6 {
   z-index: 34;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.070s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.360s forwards;
 }
 
 .reta-flip-paper-7 {
   z-index: 33;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.100s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.382s forwards;
 }
 
 .reta-flip-paper-8 {
   z-index: 32;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.130s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.404s forwards;
 }
 
 .reta-flip-paper-9 {
   z-index: 31;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.160s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.426s forwards;
 }
 
 .reta-flip-paper-10 {
   z-index: 30;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.190s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.448s forwards;
 }
 
 .reta-flip-paper-11 {
   z-index: 29;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.220s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.470s forwards;
 }
 
 .reta-flip-paper-12 {
   z-index: 28;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.250s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.492s forwards;
 }
 
 .reta-flip-paper-13 {
   z-index: 27;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.280s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.514s forwards;
 }
 
 .reta-flip-paper-14 {
   z-index: 26;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.310s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.536s forwards;
 }
 
 .reta-flip-paper-15 {
   z-index: 25;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.340s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.558s forwards;
 }
 
 .reta-flip-paper-16 {
   z-index: 24;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.370s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.580s forwards;
 }
 
 .reta-flip-paper-17 {
   z-index: 23;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.400s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.602s forwards;
 }
 
 .reta-flip-paper-18 {
   z-index: 22;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.430s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.624s forwards;
 }
 
 .reta-flip-paper-19 {
   z-index: 21;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.460s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.646s forwards;
 }
 
 .reta-flip-paper-20 {
   z-index: 20;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.490s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.668s forwards;
 }
 
 .reta-flip-paper-21 {
   z-index: 19;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.520s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.690s forwards;
 }
 
 .reta-flip-paper-22 {
   z-index: 18;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.550s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.712s forwards;
 }
 
 .reta-flip-paper-23 {
   z-index: 17;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.580s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.734s forwards;
 }
 
 .reta-flip-paper-24 {
   z-index: 16;
-  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.610s forwards;
+  animation: reta-brrrr-flip 0.22s cubic-bezier(.48,.02,.25,1) 1.756s forwards;
 }
 
 .reta-book-final {
-  animation: reta-brrrr-final .32s ease 1.92s forwards !important;
+  animation: reta-brrrr-final .32s ease 1.88s forwards !important;
 }
 
 @keyframes reta-brrrr-cover {
