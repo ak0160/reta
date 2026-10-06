@@ -6651,26 +6651,34 @@ if (readingSessionIdRef.current) {
 
             {readerMode === "shared" && (
               <>
-                <div className="rounded-3xl bg-white p-5 shadow-lg">
-                  <h2 className="mb-3 text-lg font-bold">ログイン中の利用者</h2>
-                  <div className="rounded-2xl bg-[#fff8f7] px-4 py-3 text-sm font-bold text-gray-800">
-                    {username || "利用者"}
+                <div className="reta-community-card rounded-3xl border border-[#eee3df] bg-[#fffdfa] p-5">
+                  <h2 className="mb-4 text-base font-bold text-gray-900">ログイン中の利用者</h2>
+                  <div className="flex min-w-0 items-center gap-3 rounded-2xl bg-[#fcf0f1] px-3 py-3 text-sm font-bold text-gray-800">
+                    <svg aria-hidden="true" viewBox="0 0 32 32" className="h-9 w-9 shrink-0 rounded-full bg-[#f9dfe4] p-1.5 text-[#bf596f]" fill="currentColor">
+                      <circle cx="16" cy="10" r="5" />
+                      <path d="M6 28v-3a10 10 0 0 1 20 0v3Z" />
+                    </svg>
+                    <span className="min-w-0 flex-1 break-words">{username || "利用者"}</span>
+                    <span className="shrink-0 rounded-full bg-white/70 px-2 py-1 text-[0.65rem] font-medium text-[#a6445a]">あなた</span>
                   </div>
-                  <p className="mt-2 text-xs leading-relaxed text-gray-400">
+                  <p className="mt-3 text-xs leading-relaxed text-gray-500">
                     共有読みの参加者名とリアクション名には、ログイン中の利用者名を使用します。
                   </p>
                 </div>
 
-                <div className="rounded-3xl bg-white p-5 shadow-lg">
-                  <h2 className="mb-3 text-lg font-bold">参加者</h2>
+                <div className="reta-community-card rounded-3xl border border-[#eee3df] bg-[#fffdfa] p-5">
+                  <h2 className="mb-4 text-base font-bold text-gray-900">参加者</h2>
 
                   <div className="space-y-3">
                     {visibleParticipants.map((participant) => (
                       <div
                         key={participant.id}
-                        className="rounded-2xl bg-gray-50 px-3 py-2 text-sm"
+                        className="reta-participant-row rounded-2xl px-3 py-3 text-sm"
                       >
-                        <div className="font-bold">{participant.name}</div>
+                        <div className="flex min-w-0 items-center gap-2 font-bold text-gray-800">
+                          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-400" />
+                          <span className="min-w-0 break-words">{participant.name}</span>
+                        </div>
 
                         <div className="mt-1 text-xs text-gray-500">
                           {participant.paragraphIndex + 1}区切り目 ／{" "}
@@ -6685,24 +6693,24 @@ if (readingSessionIdRef.current) {
                   </div>
                 </div>
 
-                <div className="rounded-3xl bg-white p-5 shadow-lg">
-                  <h2 className="mb-3 text-lg font-bold">リアクション</h2>
+                <div className="reta-community-card rounded-3xl border border-[#eee3df] bg-[#fffdfa] p-5">
+                  <h2 className="mb-4 text-base font-bold text-gray-900">リアクション</h2>
 
-                  <div className="mb-4 rounded-2xl bg-yellow-50 p-3">
-                    <p className="mb-2 text-xs text-gray-500">
+                  <div className="mb-4">
+                    <p className="mb-3 text-xs text-gray-500">
                       今の区切りにリアクション
                     </p>
 
-                    <div className="mb-2 flex gap-2">
+                    <div className="mb-3 grid grid-cols-5 gap-1.5">
                       {["👍", "😮", "😢", "❤️", "🤔"].map((emoji) => (
                         <button
                           key={emoji}
                           type="button"
                           onClick={() => setReactionEmoji(emoji)}
-                          className={`rounded-xl px-3 py-2 text-lg ${
+                          className={`reta-reaction-choice flex min-w-0 items-center justify-center rounded-xl border py-2 text-lg transition ${
                             reactionEmoji === emoji
-                              ? "bg-yellow-300"
-                              : "bg-white"
+                              ? "border-[#d8899a] bg-[#fce7eb]"
+                              : "border-[#eee3df] bg-white"
                           }`}
                         >
                           {emoji}
@@ -6716,13 +6724,13 @@ if (readingSessionIdRef.current) {
                         setReactionComment(event.target.value)
                       }
                       placeholder="コメントを書く"
-                      className="h-20 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none"
+                      className="h-20 w-full rounded-2xl border border-[#eee3df] bg-white px-3 py-3 text-sm outline-none focus:border-[#d8899a]"
                     />
 
                     <button
                       type="button"
                       onClick={handleAddReaction}
-                      className="mt-2 w-full rounded-xl bg-yellow-300 px-4 py-2 text-sm font-bold text-gray-800"
+                      className="mt-3 w-full rounded-full bg-[#bf596f] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#a6445a]"
                     >
                       追加する
                     </button>
@@ -6732,7 +6740,7 @@ if (readingSessionIdRef.current) {
                     {visibleReactions.map((reaction, index) => (
                       <div
                         key={`${reaction.createdAt}-${index}`}
-                        className="rounded-xl bg-gray-50 px-3 py-2 text-sm"
+                        className="rounded-2xl border border-[#f0e7e4] bg-[#fff8f7] px-3 py-3 text-sm"
                       >
                         <div>
                           {reaction.participantName}：{reaction.emoji}
