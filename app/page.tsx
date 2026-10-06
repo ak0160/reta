@@ -5400,7 +5400,7 @@ if (readingSessionIdRef.current) {
 
             <div className="reta-book-cover">
               <img
-                src="/reta-logo.png"
+                src="./reta-logo.png"
                 alt="ReTA - Reading Together, Apart"
               />
             </div>
