@@ -5523,13 +5523,19 @@ if (readingSessionIdRef.current) {
 
   if (!currentGroup) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8] px-4 py-8">
-        <div className="w-full max-w-2xl rounded-[2rem] border border-[#eee3d2] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
+      <main className="reta-workspace flex min-h-screen items-center justify-center bg-[#faf7f3] px-4 py-8">
+        <div className="w-full max-w-2xl rounded-[2rem] border border-[#eee3df] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold tracking-[0.3em] text-[#b98234]">
-                ReTA
-              </p>
+              <div className="flex items-center gap-3">
+                <img
+                  src="./reta-logo.png"
+                  alt="ReTAロゴ"
+                  width={64}
+                  height={64}
+                  className="h-11 w-11 shrink-0 object-contain lg:h-16 lg:w-16"
+                />
+              </div>
               <h1 className="mt-3 text-3xl font-bold text-gray-950">
                 グループを選択
               </h1>
@@ -5549,8 +5555,8 @@ if (readingSessionIdRef.current) {
           </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-2">
-            <section className="rounded-3xl border border-[#eee3d2] bg-[#fffaf0] p-5">
-              <p className="text-xs font-bold tracking-[0.18em] text-[#b98234]">
+            <section className="rounded-3xl border border-[#eee3df] bg-[#fff8f7] p-5">
+              <p className="text-xs font-bold tracking-[0.18em] text-[#a6445a]">
                 CREATE GROUP
               </p>
               <h2 className="mt-2 text-xl font-bold text-gray-900">
@@ -5570,7 +5576,7 @@ if (readingSessionIdRef.current) {
                   }
                 }}
                 placeholder="グループ名"
-                className="mt-5 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+                className="mt-5 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#bf596f]"
               />
 
               <button
@@ -5604,13 +5610,13 @@ if (readingSessionIdRef.current) {
                 }}
                 maxLength={6}
                 placeholder="6桁の参加コード"
-                className="mt-5 w-full rounded-2xl border border-gray-200 px-4 py-3 text-center text-lg font-bold tracking-[0.3em] uppercase outline-none focus:border-[#c79a53]"
+                className="mt-5 w-full rounded-2xl border border-gray-200 px-4 py-3 text-center text-lg font-bold tracking-[0.3em] uppercase outline-none focus:border-[#bf596f]"
               />
 
               <button
                 type="button"
                 onClick={() => void handleJoinGroup()}
-                className="mt-3 w-full rounded-2xl bg-[#c79a53] px-4 py-3 text-sm font-bold text-white"
+                className="mt-3 w-full rounded-2xl bg-[#bf596f] px-4 py-3 text-sm font-bold text-white"
               >
                 グループに参加
               </button>
@@ -5635,15 +5641,19 @@ if (readingSessionIdRef.current) {
     <main
       tabIndex={0}
       onKeyDown={handleReaderKeyDown}
-      className="min-h-screen bg-[#f5f1e8] px-2 pb-24 pt-2 outline-none sm:px-4 sm:pb-24 sm:pt-4 lg:py-6"
+      className="reta-workspace min-h-screen bg-[#faf7f3] px-2 pb-24 pt-2 outline-none sm:px-4 sm:pb-24 sm:pt-4 lg:py-6"
     >
       <div className="mx-auto max-w-7xl">
-        <header className="mb-3 rounded-2xl border border-[#e9e1d5] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(30,41,59,0.06)] lg:hidden">
+        <header className="reta-reader-header mb-3 rounded-2xl border border-[#eee3df] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(30,41,59,0.06)] lg:hidden">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[0.58rem] font-black tracking-[0.25em] text-[#a86f24]">
-                ReTA
-              </p>
+            <img
+              src="./reta-logo.png"
+              alt="ReTAロゴ"
+              width={44}
+              height={44}
+              className="h-11 w-11 shrink-0 object-contain"
+            />
+            <div className="min-w-0 flex-1">
               <div className="mt-1 flex min-w-0 items-baseline gap-2">
                 <h1 className="truncate font-serif text-xl font-bold text-gray-950">
                   {hasSelectedWork
@@ -5665,7 +5675,7 @@ if (readingSessionIdRef.current) {
                   current === "more" ? null : "more",
                 )
               }
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fff7e8] text-lg font-black text-[#9a651f]"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fcf0f1] text-lg font-black text-[#a6445a]"
               aria-label="その他のメニュー"
             >
               ⋯
@@ -5673,29 +5683,29 @@ if (readingSessionIdRef.current) {
           </div>
 
           <div className="mt-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5 text-[0.67rem] font-bold">
-            <span className="rounded-full bg-[#fff7e8] px-2.5 py-1.5 text-[#9a651f]">
+            <span className="rounded-full bg-[#fcf0f1] px-2.5 py-1.5 text-[#a6445a]">
               👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}
             </span>
-            <span className="rounded-full bg-[#fff7e8] px-2.5 py-1.5 text-[#9a651f]">
+            <span className="rounded-full bg-[#fcf0f1] px-2.5 py-1.5 text-[#a6445a]">
               {currentGroup.name}
             </span>
-            <span className="rounded-full border border-[#ead7b8] bg-white px-2.5 py-1.5 text-[#9a651f]">
+            <span className="rounded-full border border-[#eed5d8] bg-white px-2.5 py-1.5 text-[#a6445a]">
               {currentGroup.code}
             </span>
           </div>
         </header>
 
-        <header className="mb-5 hidden rounded-[1.75rem] border border-[#e9e1d5] bg-white px-7 py-5 shadow-[0_12px_32px_rgba(30,41,59,0.06)] lg:block">
+        <header className="reta-reader-header mb-5 hidden rounded-[1.75rem] border border-[#eee3df] bg-white px-7 py-5 shadow-[0_12px_32px_rgba(30,41,59,0.06)] lg:block">
           <div className="flex flex-col gap-3 sm:gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
               <div className="mb-3 flex items-center gap-3">
-                <span className="h-7 w-1 rounded-full bg-[#c79a53]" />
-                <p
-                  className="font-serif text-2xl font-semibold tracking-[-0.04em] text-[#334e68]"
-                  aria-label="ReTA"
-                >
-                  ReTA
-                </p>
+                <img
+                  src="./reta-logo.png"
+                  alt="ReTAロゴ"
+                  width={64}
+                  height={64}
+                  className="h-16 w-16 shrink-0 object-contain"
+                />
               </div>
 
               <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
@@ -5713,13 +5723,13 @@ if (readingSessionIdRef.current) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
-              <span className="rounded-full bg-[#fff7e8] px-3 py-2 text-[#9a651f]">
+              <span className="rounded-full bg-[#fcf0f1] px-3 py-2 text-[#a6445a]">
                 👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}人参加
               </span>
-              <span className="rounded-full bg-[#fff7e8] px-3 py-2 text-[#9a651f]">
+              <span className="rounded-full bg-[#fcf0f1] px-3 py-2 text-[#a6445a]">
                 グループ：{currentGroup.name}
               </span>
-              <span className="rounded-full border border-[#ead7b8] bg-white px-3 py-2 text-[#9a651f]">
+              <span className="rounded-full border border-[#eed5d8] bg-white px-3 py-2 text-[#a6445a]">
                 参加コード：{currentGroup.code}
               </span>
               <span className="rounded-full bg-gray-100 px-3 py-2 text-gray-600">
@@ -5728,7 +5738,7 @@ if (readingSessionIdRef.current) {
               <button
                 type="button"
                 onClick={() => void handleLeaveGroup()}
-                className="rounded-full border border-[#ead7b8] bg-white px-3 py-2 text-[#9a651f] transition hover:bg-[#fffaf0]"
+                className="rounded-full border border-[#eed5d8] bg-white px-3 py-2 text-[#a6445a] transition hover:bg-[#fff8f7]"
               >
                 グループを退会
               </button>
@@ -5745,7 +5755,7 @@ if (readingSessionIdRef.current) {
           <div className="mt-5 border-t border-gray-100 pt-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-[0.65rem] font-bold tracking-[0.28em] text-[#a86f24]">
+                <p className="text-[0.65rem] font-bold tracking-[0.28em] text-[#a6445a]">
                   READING HISTORY
                 </p>
                 <h2 className="mt-1 text-base font-bold text-gray-900">
@@ -5768,7 +5778,7 @@ if (readingSessionIdRef.current) {
                     key={progress.workId}
                     type="button"
                     onClick={() => handleOpenReadingProgress(progress)}
-                    className="group min-w-0 rounded-2xl border border-[#eee7dc] bg-[#fffcf6] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#dcc7a7] hover:shadow-[0_8px_20px_rgba(30,41,59,0.07)]"
+                    className="reta-history-card group min-w-0 rounded-2xl border border-[#eee3df] bg-[#fffcfa] p-3 text-left transition hover:-translate-y-0.5 hover:border-[#dfa4af] hover:shadow-[0_8px_20px_rgba(30,41,59,0.07)]"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -5779,13 +5789,13 @@ if (readingSessionIdRef.current) {
                           {progress.author}
                         </p>
                       </div>
-                      <span className="shrink-0 text-[0.65rem] font-black text-[#a86f24]">
+                      <span className="shrink-0 text-[0.65rem] font-black text-[#a6445a]">
                         {progress.percent}%
                       </span>
                     </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white">
+                    <div className="reta-progress-track mt-3 h-1.5 overflow-hidden rounded-full bg-white">
                       <div
-                        className="h-full rounded-full bg-[#e5ac45]"
+                        className="h-full rounded-full bg-[#c85b72]"
                         style={{
                           width: `${Math.max(0, Math.min(progress.percent, 100))}%`,
                         }}
@@ -5800,7 +5810,7 @@ if (readingSessionIdRef.current) {
             )}
 
             
-            <details className="group mt-3 rounded-2xl border border-[#eee7dc] bg-[#fffaf0]">
+            <details className="group mt-3 rounded-2xl border border-[#eee3df] bg-[#fff8f7]">
               <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-bold text-gray-700">
                 <span>＋ 別の作品を開く</span>
                 <span className="text-xs text-gray-400 transition group-open:rotate-180">
@@ -5808,8 +5818,8 @@ if (readingSessionIdRef.current) {
                 </span>
               </summary>
 
-              <div className="border-t border-[#eee7dc] p-4">
-                <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-[#eee6da] p-1">
+              <div className="border-t border-[#eee3df] p-4">
+                <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-[#f5eceb] p-1">
                   {[
                     ["preset", "マイライブラリ"],
                     ["url", "青空文庫URL"],
@@ -5872,7 +5882,7 @@ if (readingSessionIdRef.current) {
                           setTextUploadTitle(event.target.value)
                         }
                         placeholder="作品名"
-                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#bf596f]"
                       />
                     </label>
 
@@ -5888,7 +5898,7 @@ if (readingSessionIdRef.current) {
                           setTextUploadAuthor(event.target.value)
                         }
                         placeholder="著者名"
-                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#bf596f]"
                       />
                     </label>
 
@@ -5934,7 +5944,7 @@ if (readingSessionIdRef.current) {
                         }
                       }}
                       placeholder="青空文庫の図書カードURL"
-                      className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
+                      className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#bf596f]"
                     />
                     <button
                       type="button"
@@ -5958,7 +5968,7 @@ if (readingSessionIdRef.current) {
         </header>
 
         <div className="grid gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
-          <section className="overflow-hidden rounded-2xl border border-[#e9e1d5] bg-[#fffdf8] shadow-[0_14px_34px_rgba(30,41,59,0.07)] sm:rounded-[1.75rem]">
+          <section className="reta-reader-card overflow-hidden rounded-2xl border border-[#eee3df] bg-[#fffdfa] shadow-[0_14px_34px_rgba(30,41,59,0.07)] sm:rounded-[1.75rem]">
             <div className="border-b border-gray-100 px-5 py-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -5995,13 +6005,20 @@ if (readingSessionIdRef.current) {
               }`}
             >
               {!hasSelectedWork ? (
-                <div className="flex h-full w-full items-center justify-center">
-                  <div className="text-center">
-                    <p className="font-serif text-xl font-bold text-gray-700 sm:text-2xl">
+                <div className="reta-reader-empty flex h-full w-full items-center justify-center">
+                  <div className="relative text-center">
+                    <svg aria-hidden="true" viewBox="0 0 120 90" className="mx-auto mb-6 h-20 w-28 text-[#d8899a]" fill="none">
+                      <path d="M60 25C45 15 28 15 16 20L12 67C29 61 44 65 60 74C76 65 91 61 108 67L104 20C92 15 75 15 60 25Z" fill="currentColor" opacity="0.14" />
+                      <path d="M60 25C45 15 28 15 16 20L12 67C29 61 44 65 60 74C76 65 91 61 108 67L104 20C92 15 75 15 60 25ZM60 25V74M25 32C35 30 43 32 51 36M24 43C34 41 42 44 51 48M69 36C77 32 85 30 95 32M69 48C78 44 86 41 96 43" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <p className="font-serif text-2xl font-medium tracking-[0.06em] text-gray-800 sm:text-3xl">
                       作品を選択してください
                     </p>
-                    <p className="mt-2 text-sm text-gray-400">
+                    <p className="mt-4 text-sm leading-relaxed text-gray-500">
                       メニューから読みたい作品を選択すると、読書を開始できます。
+                    </p>
+                    <p className="mt-5 text-[0.65rem] tracking-[0.3em] text-[#a6445a]">
+                      Reading Together, Apart
                     </p>
                   </div>
                 </div>
@@ -6219,7 +6236,7 @@ if (readingSessionIdRef.current) {
               )}
             </div>
 
-            <div className="border-t border-gray-100 px-6 py-5">
+            <div className="reta-reading-map border-t border-gray-100 px-6 py-5">
               <div className="mb-3 flex items-center justify-between text-xs text-gray-500">
                 <span>読書マップ</span>
 
@@ -6228,7 +6245,7 @@ if (readingSessionIdRef.current) {
                 </span>
               </div>
 
-              <div className="relative h-5 rounded-full bg-gray-200">
+              <div className="reta-map-track relative rounded-full">
                 {visibleParticipants
                   .filter(
                     (participant) =>
@@ -6244,7 +6261,7 @@ if (readingSessionIdRef.current) {
                     return (
                       <div
                         key={participant.id}
-                        className="absolute top-[-8px] flex flex-col items-center"
+                        className="reta-map-participant absolute flex flex-col items-center"
                         style={{
                           left: `${100 - percent}%`,
                           transform: "translateX(-50%)",
@@ -6253,8 +6270,8 @@ if (readingSessionIdRef.current) {
                           participant.paragraphIndex + 1
                         }区切り目`}
                       >
-                        <div className="h-9 w-[3px] rounded-full bg-blue-400" />
-                        <div className="mt-1 max-w-14 truncate text-[0.6rem] text-gray-500">
+                        <div className="reta-map-dot rounded-full bg-blue-400" />
+                        <div className="reta-map-name max-w-14 truncate text-[0.6rem] text-gray-600">
                           {getDisplayName(participant.name)}
                         </div>
                       </div>
@@ -6263,7 +6280,7 @@ if (readingSessionIdRef.current) {
 
                 {participantId && readingUnits.length > 0 && (
                   <div
-                    className="absolute top-[-8px] flex flex-col items-center"
+                    className="reta-map-participant reta-map-self absolute flex flex-col items-center"
                     style={{
                       left: `calc(100% - ${
                         readingUnits.length <= 1
@@ -6276,8 +6293,8 @@ if (readingSessionIdRef.current) {
                     }}
                     title={`自分：${currentParagraphIndex + 1}区切り目`}
                   >
-                    <div className="h-9 w-[3px] rounded-full bg-blue-400" />
-                    <div className="mt-1 max-w-14 truncate text-[0.6rem] text-gray-500">
+                    <div className="reta-map-dot rounded-full bg-blue-400" />
+                    <div className="reta-map-name max-w-14 truncate text-[0.6rem] text-gray-600">
                       {getDisplayName(username || "asuma")}
                     </div>
                   </div>
@@ -6296,7 +6313,7 @@ if (readingSessionIdRef.current) {
                   return (
                     <div
                       key={`${reaction.createdAt}-${index}`}
-                      className="absolute bottom-[-4px] h-3 w-3  rounded-full bg-pink-400"
+                      className="reta-map-reaction absolute rounded-full bg-pink-400"
                       style={{
                         right: `${percent}%`,
                         transform: "translateX(0)",
@@ -6309,22 +6326,28 @@ if (readingSessionIdRef.current) {
                 })}
               </div>
 
-              <div className="mt-6 flex gap-4 text-xs text-gray-500">
-                <span>青：参加者</span>
-                <span>桃：リアクション</span>
+              <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-gray-500">
+                <span className="inline-flex items-center gap-2">
+                  <span aria-hidden="true" className="h-2 w-2 rounded-full bg-blue-400" />
+                  参加者
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <span aria-hidden="true" className="h-2 w-2 rounded-full bg-pink-400" />
+                  リアクション
+                </span>
               </div>
             </div>
           </section>
 
-          <aside className="hidden space-y-4 lg:sticky lg:top-4 lg:block lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
-            <div className="rounded-[1.5rem] border border-[#e9e1d5] bg-white p-4 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
+          <aside className="reta-reader-controls hidden space-y-4 lg:sticky lg:top-4 lg:block lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
+            <div className="rounded-[1.5rem] border border-[#eee3df] bg-white p-4 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[0.65rem] font-bold tracking-[0.25em] text-[#a86f24]">
-                    READING CONTROL
+                  <p className="text-[0.65rem] font-bold tracking-[0.25em] text-[#a6445a]">
+                    READING MODE
                   </p>
                   <h2 className="mt-1 text-base font-bold text-gray-900">
-                    読書操作
+                    読み方を選ぶ
                   </h2>
                 </div>
                 <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[0.65rem] font-bold text-gray-500">
@@ -6338,14 +6361,14 @@ if (readingSessionIdRef.current) {
                   onClick={() => changeReaderMode("reading")}
                   className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "reading" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
-                  一人読み
+                  ひとりで読む
                 </button>
                 <button
                   type="button"
                   onClick={() => changeReaderMode("shared")}
                   className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "shared" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
-                  みんなと読む
+                  一緒に読む
                 </button>
               </div>
 
@@ -6360,7 +6383,7 @@ if (readingSessionIdRef.current) {
                   disabled={Boolean(readingSessionIdRef.current)}
                   className="rounded-xl bg-gray-900 px-3 py-3 text-xs font-bold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  ▶ 読書開始
+                  ▶ 読みはじめる
                 </button>
                 <button
                   type="button"
@@ -6372,7 +6395,7 @@ if (readingSessionIdRef.current) {
                   disabled={!readingSessionIdRef.current}
                   className="rounded-xl border border-gray-300 bg-white px-3 py-3 text-xs font-bold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  ■ 読書終了
+                  ■ 読み終える
                 </button>
               </div>
 
@@ -6382,14 +6405,14 @@ if (readingSessionIdRef.current) {
                   onClick={() => changeLayoutModeKeepingPosition("normal")}
                   className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "normal" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
-                  通常段落
+                  標準
                 </button>
                 <button
                   type="button"
                   onClick={() => changeLayoutModeKeepingPosition("grouped")}
                   className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "grouped" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
-                  2文
+                  2文ずつ
                 </button>
                 <button
                   type="button"
@@ -6400,12 +6423,12 @@ if (readingSessionIdRef.current) {
                 </button>
               </div>
 
-              <details className="group mt-3 rounded-xl border border-gray-100 bg-[#fffcf6]">
+              <details className="group mt-3 rounded-xl border border-gray-100 bg-[#fffcfa]">
                 <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-xs font-bold text-gray-700">
-                  <span>オート読書</span>
+                  <span>自動スクロール</span>
                   <span
                     className={
-                      isAutoScroll ? "text-[#a86f24]" : "text-gray-400"
+                      isAutoScroll ? "text-[#a6445a]" : "text-gray-400"
                     }
                   >
                     {isAutoScroll ? `${autoSpeed}px/秒` : "停止中"}
@@ -6433,7 +6456,7 @@ if (readingSessionIdRef.current) {
   }
 }}
                     className="w-full accent-[#d8a348]"
-                    aria-label="オート読書速度"
+                    aria-label="自動スクロール速度"
                   />
                   <div className="mt-1 flex justify-between text-[0.62rem] font-bold text-gray-400">
                     <span>停止</span>
@@ -6446,10 +6469,10 @@ if (readingSessionIdRef.current) {
               <div className="mt-4 border-t border-gray-100 pt-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[0.68rem] font-bold text-gray-500">
-                    読書位置
+                    しおり
                   </span>
                   <span className="text-[0.6rem] text-gray-400">
-                    最大4か所
+                    4か所まで
                   </span>
                 </div>
 
@@ -6494,8 +6517,8 @@ if (readingSessionIdRef.current) {
                         {hasBookmark && (
                           <button
                             type="button"
-                            aria-label={`読書位置${slotIndex + 1}を削除`}
-                            title={`読書位置${slotIndex + 1}を削除`}
+                            aria-label={`しおり${slotIndex + 1}を削除`}
+                            title={`しおり${slotIndex + 1}を削除`}
                             onClick={(event) => {
                               event.stopPropagation();
                               handleDeleteBookmark(slotIndex);
@@ -6512,13 +6535,13 @@ if (readingSessionIdRef.current) {
               </div>
             </div>
 
-            <div className="rounded-[1.5rem] border border-[#eadfce] bg-[#fffaf0] p-4 shadow-[0_10px_28px_rgba(30,41,59,0.05)]">
+            <div className="rounded-[1.5rem] border border-[#eadfce] bg-[#fff8f7] p-4 shadow-[0_10px_28px_rgba(30,41,59,0.05)]">
               <div className="mb-3 flex items-center gap-2">
                 <span className="text-xl" aria-hidden="true">
                   ⌨️
                 </span>
                 <div>
-                  <p className="text-[0.62rem] font-bold tracking-[0.22em] text-[#a86f24]">
+                  <p className="text-[0.62rem] font-bold tracking-[0.22em] text-[#a6445a]">
                     KEYBOARD
                   </p>
                   <h2 className="text-sm font-bold text-gray-900">
@@ -6555,7 +6578,7 @@ if (readingSessionIdRef.current) {
               </div>
             </div>
 
-            <div className="rounded-[1.5rem] border border-[#e9e1d5] bg-white p-5 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
+            <div className="rounded-[1.5rem] border border-[#eee3df] bg-white p-5 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
               <h2 className="mb-3 text-lg font-bold">用語検索</h2>
 
               <input
@@ -6630,7 +6653,7 @@ if (readingSessionIdRef.current) {
               <>
                 <div className="rounded-3xl bg-white p-5 shadow-lg">
                   <h2 className="mb-3 text-lg font-bold">ログイン中の利用者</h2>
-                  <div className="rounded-2xl bg-[#fffaf0] px-4 py-3 text-sm font-bold text-gray-800">
+                  <div className="rounded-2xl bg-[#fff8f7] px-4 py-3 text-sm font-bold text-gray-800">
                     {username || "利用者"}
                   </div>
                   <p className="mt-2 text-xs leading-relaxed text-gray-400">
@@ -6742,19 +6765,19 @@ if (readingSessionIdRef.current) {
             className="absolute inset-0 bg-black/25"
           />
 
-          <div className="absolute inset-x-0 bottom-[4.9rem] mx-auto max-h-[70dvh] w-[calc(100%-1rem)] max-w-xl overflow-y-auto rounded-[1.6rem] border border-[#e9e1d5] bg-[#fffdf8] p-4 shadow-[0_-16px_50px_rgba(15,23,42,0.18)]">
+          <div className="reta-mobile-panel absolute inset-x-0 bottom-[4.9rem] mx-auto max-h-[70dvh] w-[calc(100%-1rem)] max-w-xl overflow-y-auto rounded-[1.6rem] border border-[#eee3df] bg-[#fffdfa] p-4 shadow-[0_-16px_50px_rgba(15,23,42,0.18)]">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <p className="text-[0.6rem] font-black tracking-[0.22em] text-[#a86f24]">
+                <p className="text-[0.6rem] font-black tracking-[0.22em] text-[#a6445a]">
                   {mobilePanel === "controls"
-                    ? "READING CONTROL"
+                    ? "READING MODE"
                     : mobilePanel === "reaction"
                       ? "REACTION"
                       : "MORE"}
                 </p>
                 <h2 className="mt-1 text-lg font-black text-gray-950">
                   {mobilePanel === "controls"
-                    ? "読書操作"
+                    ? "読み方を選ぶ"
                     : mobilePanel === "reaction"
                       ? "リアクション"
                       : "その他"}
@@ -6786,7 +6809,7 @@ if (readingSessionIdRef.current) {
                           : "text-gray-500"
                       }`}
                     >
-                      一人読み
+                      ひとりで読む
                     </button>
                     <button
                       type="button"
@@ -6797,7 +6820,7 @@ if (readingSessionIdRef.current) {
                           : "text-gray-500"
                       }`}
                     >
-                      みんなと読む
+                      一緒に読む
                     </button>
                   </div>
                 </div>
@@ -6808,8 +6831,8 @@ if (readingSessionIdRef.current) {
                   </p>
                   <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
                     {[
-                      ["normal", "通常段落"],
-                      ["grouped", "2文"],
+                      ["normal", "標準"],
+                      ["grouped", "2文ずつ"],
                       ["horizontal", "横書き"],
                     ].map(([mode, label]) => (
                       <button
@@ -6830,12 +6853,12 @@ if (readingSessionIdRef.current) {
                   </div>
                 </div>
 
-                <div className="rounded-2xl bg-[#fff7e8] p-4">
+                <div className="rounded-2xl bg-[#fcf0f1] p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <span className="text-sm font-black text-gray-800">
-                      オート読書
+                      自動スクロール
                     </span>
-                    <span className="text-xs font-bold text-[#a86f24]">
+                    <span className="text-xs font-bold text-[#a6445a]">
                       {isAutoScroll ? `${autoSpeed}px/秒` : "停止中"}
                     </span>
                   </div>
@@ -6866,10 +6889,10 @@ if (readingSessionIdRef.current) {
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-xs font-black text-gray-500">
-                      読書位置
+                      しおり
                     </span>
                     <span className="text-[0.65rem] text-gray-400">
-                      最大4か所
+                      4か所まで
                     </span>
                   </div>
 
@@ -6914,7 +6937,7 @@ if (readingSessionIdRef.current) {
                           {hasBookmark && (
                             <button
                               type="button"
-                              aria-label={`読書位置${slotIndex + 1}を削除`}
+                              aria-label={`しおり${slotIndex + 1}を削除`}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 handleDeleteBookmark(slotIndex);
@@ -6937,7 +6960,7 @@ if (readingSessionIdRef.current) {
                 {readerMode !== "shared" ? (
                   <div className="rounded-2xl bg-gray-50 px-4 py-5 text-center">
                     <p className="text-sm font-bold text-gray-600">
-                      「みんなと読む」に切り替えると
+                      「一緒に読む」に切り替えると
                       <br />
                       リアクションを送れます。
                     </p>
@@ -6946,7 +6969,7 @@ if (readingSessionIdRef.current) {
                       onClick={() => changeReaderMode("shared")}
                       className="mt-4 rounded-xl bg-[#f3cf7a] px-5 py-3 text-sm font-black text-gray-800"
                     >
-                      みんなと読む
+                      一緒に読む
                     </button>
                   </div>
                 ) : (
@@ -7024,8 +7047,8 @@ if (readingSessionIdRef.current) {
 
             {mobilePanel === "more" && (
               <div className="space-y-4">
-                <div className="rounded-2xl bg-[#fff7e8] p-4">
-                  <p className="text-xs font-black text-[#a86f24]">
+                <div className="rounded-2xl bg-[#fcf0f1] p-4">
+                  <p className="text-xs font-black text-[#a6445a]">
                     GROUP
                   </p>
                   <p className="mt-1 font-black text-gray-900">
@@ -7053,17 +7076,23 @@ if (readingSessionIdRef.current) {
                           handleOpenReadingProgress(progress);
                           setMobilePanel(null);
                         }}
-                        className="flex w-full items-center justify-between rounded-xl border border-[#eee7dc] bg-white px-3 py-3 text-left"
+                        className="reta-history-card flex w-full items-center justify-between gap-3 rounded-xl border border-[#eee3df] bg-white px-3 py-3 text-left"
                       >
-                        <span className="min-w-0">
+                        <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-black text-gray-900">
                             {progress.title}
                           </span>
                           <span className="block truncate text-xs font-bold text-gray-400">
                             {progress.author}
                           </span>
+                          <span className="reta-progress-track mt-3 block h-1.5 overflow-hidden rounded-full">
+                            <span className="block h-full rounded-full bg-[#c85b72]" style={{ width: `${Math.max(0, Math.min(progress.percent, 100))}%` }} />
+                          </span>
+                          <span className="mt-2 block text-[0.65rem] text-gray-500">
+                            {formatUpdatedAt(progress.updatedAt)}
+                          </span>
                         </span>
-                        <span className="ml-3 shrink-0 text-xs font-black text-[#a86f24]">
+                        <span className="ml-3 shrink-0 text-xs font-black text-[#a6445a]">
                           {progress.percent}%
                         </span>
                       </button>
@@ -7072,12 +7101,12 @@ if (readingSessionIdRef.current) {
                 </div>
 
                 
-                <details className="rounded-2xl border border-[#eee7dc] bg-white">
+                <details className="rounded-2xl border border-[#eee3df] bg-white">
                   <summary className="cursor-pointer list-none px-4 py-3 text-sm font-black text-gray-800">
                     ＋ 別の作品を開く
                   </summary>
 
-                  <div className="border-t border-[#eee7dc] p-4">
+                  <div className="border-t border-[#eee3df] p-4">
                     <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
                       <button
                         type="button"
@@ -7184,7 +7213,7 @@ if (readingSessionIdRef.current) {
                   <button
                     type="button"
                     onClick={() => void handleLeaveGroup()}
-                    className="rounded-xl border border-[#ead7b8] bg-white px-3 py-3 text-sm font-bold text-[#9a651f]"
+                    className="rounded-xl border border-[#eed5d8] bg-white px-3 py-3 text-sm font-bold text-[#a6445a]"
                   >
                     グループを退会
                   </button>
@@ -7210,7 +7239,7 @@ if (readingSessionIdRef.current) {
             onClick={() => setMobilePanel(null)}
             className={`rounded-xl py-2 text-center ${
               mobilePanel === null
-                ? "bg-[#fff7e8] text-[#9a651f]"
+                ? "bg-[#fcf0f1] text-[#a6445a]"
                 : "text-gray-400"
             }`}
           >
@@ -7229,7 +7258,7 @@ if (readingSessionIdRef.current) {
             }
             className={`rounded-xl py-2 text-center ${
               mobilePanel === "controls"
-                ? "bg-[#fff7e8] text-[#9a651f]"
+                ? "bg-[#fcf0f1] text-[#a6445a]"
                 : "text-gray-400"
             }`}
           >
@@ -7248,7 +7277,7 @@ if (readingSessionIdRef.current) {
             }
             className={`rounded-xl py-2 text-center ${
               mobilePanel === "reaction"
-                ? "bg-[#fff7e8] text-[#9a651f]"
+                ? "bg-[#fcf0f1] text-[#a6445a]"
                 : "text-gray-400"
             }`}
           >
@@ -7267,7 +7296,7 @@ if (readingSessionIdRef.current) {
             }
             className={`rounded-xl py-2 text-center ${
               mobilePanel === "more"
-                ? "bg-[#fff7e8] text-[#9a651f]"
+                ? "bg-[#fcf0f1] text-[#a6445a]"
                 : "text-gray-400"
             }`}
           >

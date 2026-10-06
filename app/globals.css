@@ -1581,3 +1581,206 @@ rt {
   }
 }
 
+
+/* Authenticated ReTA workspace: paper, ivory and rose. */
+.reta-workspace {
+  --reta-rose: #a6445a;
+  --reta-rose-fill: #bf596f;
+  --reta-paper-border: #eee3df;
+  background-color: #faf7f3;
+  background-image: radial-gradient(ellipse at 0 0, #f8e5e5 0, transparent 38%),
+    radial-gradient(ellipse at 100% 100%, #faeeee 0, transparent 34%);
+}
+
+.reta-workspace .reta-reader-header {
+  border-color: var(--reta-paper-border);
+  background-color: #fffdfa;
+  background-image:
+    linear-gradient(145deg, transparent 88%, rgb(216 137 154 / 5%) 88%, transparent 96%),
+    linear-gradient(35deg, transparent 91%, rgb(216 137 154 / 4%) 91%),
+    radial-gradient(ellipse at 78% 0, #fceff0 0, transparent 48%);
+  box-shadow: 0 8px 30px rgb(113 69 78 / 4%);
+}
+
+.reta-workspace .reta-history-card {
+  padding: 1rem;
+  border-color: var(--reta-paper-border);
+  background: linear-gradient(135deg, #fffefd, #fff9f6);
+  box-shadow: 0 3px 12px rgb(113 69 78 / 3%);
+}
+
+.reta-workspace .reta-history-card:hover {
+  border-color: #dfa4af;
+  box-shadow: 0 8px 22px rgb(113 69 78 / 8%);
+}
+
+.reta-workspace .reta-progress-track {
+  background-color: #f0e7e4;
+}
+
+.reta-workspace .reta-reader-card,
+.reta-workspace .reta-reader-controls > div {
+  border-color: var(--reta-paper-border);
+  background-color: #fffdfa;
+  box-shadow: 0 10px 32px rgb(113 69 78 / 5%);
+}
+
+.reta-workspace .reta-reader-empty {
+  border-radius: 1.25rem;
+  background-image:
+    linear-gradient(140deg, rgb(216 137 154 / 4%) 0 8%, transparent 8%),
+    linear-gradient(320deg, rgb(216 137 154 / 4%) 0 8%, transparent 8%),
+    radial-gradient(ellipse at 0 10%, #fcf1f1 0, transparent 32%),
+    radial-gradient(ellipse at 100% 95%, #fcf1f1 0, transparent 32%);
+}
+
+.reta-workspace .reta-reader-controls > div {
+  padding: 1.25rem;
+}
+
+.reta-workspace button[class~="bg-gray-900"] {
+  background-color: var(--reta-rose-fill);
+}
+
+.reta-workspace button[class~="bg-gray-900"]:hover {
+  background-color: var(--reta-rose);
+}
+
+.reta-workspace .reta-reader-controls button[class~="shadow-sm"],
+.reta-workspace .reta-mobile-panel button[class~="shadow-sm"] {
+  background-color: var(--reta-rose-fill);
+  color: white;
+}
+
+.reta-workspace button:focus-visible,
+.reta-workspace summary:focus-visible {
+  outline: 2px solid var(--reta-rose);
+  outline-offset: 3px;
+}
+
+@media (min-width: 1024px) {
+  .reta-workspace > .max-w-7xl > .reta-reader-header {
+    padding: 1.75rem;
+  }
+
+  .reta-workspace .reta-reader-header > div:first-child > div:first-child {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  .reta-workspace .reta-reader-header > div:first-child > div:first-child > div:first-child {
+    margin-bottom: 0;
+    padding-right: 2rem;
+    border-right: 1px solid rgb(166 68 90 / 12%);
+  }
+
+  .reta-workspace .reta-reader-header > div:nth-child(2) {
+    margin-top: 1.75rem;
+    padding-top: 1.5rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .reta-workspace .reta-history-card {
+    padding: 0.875rem;
+  }
+
+  .reta-workspace .reta-reader-empty {
+    padding: 1rem;
+  }
+}
+
+/* Give the compact header a separate brand row without squeezing the title. */
+@media (max-width: 1023px) {
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:first-child {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 40px;
+    align-items: center;
+    gap: 0.875rem 0.75rem;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:first-child > img {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:first-child > button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:first-child > div {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] h1 {
+    min-width: 0;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] h1 + span {
+    max-width: 35%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* Reading map: positions and participant colours come from the existing JSX. */
+.reta-workspace .reta-reading-map {
+  background: #fffdfa;
+}
+
+.reta-workspace .reta-map-track {
+  height: 4px;
+  margin: 2.75rem 0.5rem 0;
+  background: #e9e7e5;
+}
+
+.reta-workspace .reta-map-participant {
+  top: -4px;
+  z-index: 2;
+}
+
+.reta-workspace .reta-map-dot {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fffdfa;
+  box-shadow: 0 0 0 1px rgb(96 165 250 / 18%);
+}
+
+.reta-workspace .reta-map-name {
+  position: absolute;
+  bottom: 18px;
+  width: max-content;
+  max-width: 5rem;
+  line-height: 1.4;
+}
+
+.reta-workspace .reta-map-participant:nth-child(2):not(.reta-map-self) .reta-map-name {
+  bottom: 32px;
+}
+
+.reta-workspace .reta-map-self .reta-map-name {
+  top: 16px;
+  bottom: auto;
+}
+
+.reta-workspace .reta-map-reaction {
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #fffdfa;
+}
+
+@media (max-width: 639px) {
+  .reta-workspace .reta-reading-map {
+    padding: 1rem 1.25rem;
+  }
+
+  .reta-workspace .reta-map-name {
+    max-width: 3.5rem;
+  }
+}

@@ -1,7 +1,5 @@
-const BASE_PATH =
-  process.env.NODE_ENV === "production"
-    ? "/reta"
-    : "";
+// next.config.ts uses /reta in both development and production.
+const BASE_PATH = "/reta";
 
 export type StoryKey =
   | "wagahai"
