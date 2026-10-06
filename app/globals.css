@@ -1784,3 +1784,17 @@ rt {
     max-width: 3.5rem;
   }
 }
+
+.reta-workspace .reta-reader-controls > .reta-community-card {
+  box-shadow: 0 4px 18px rgb(113 69 78 / 4%);
+}
+
+.reta-workspace .reta-participant-row {
+  background: #f7f8fa;
+  border: 1px solid #edf0f3;
+}
+
+.reta-workspace .reta-reaction-choice:hover {
+  border-color: #d8899a;
+  background-color: #fff3f5;
+}
