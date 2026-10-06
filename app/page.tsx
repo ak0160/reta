@@ -23,6 +23,7 @@ import {
   runTransaction,
   setDoc,
   where,
+  waitForPendingWrites,
 } from "firebase/firestore";
 
 import {
@@ -1491,6 +1492,13 @@ export default function Home() {
   const [registeredTextWorks, setRegisteredTextWorks] = useState<
     RegisteredTextWork[]
   >([]);
+  const [ownedTextWorkId, setOwnedTextWorkId] = useState<string | null>(null);
+  const [isDeletingTextWork, setIsDeletingTextWork] = useState(false);
+  const [textDeleteError, setTextDeleteError] = useState("");
+  const deletingTextWorkIdRef = useRef<string | null>(null);
+  const deletedTextWorkIdsRef = useRef(new Set<string>());
+  const isTextWorkSaveBlocked = (workId: string) =>
+    deletingTextWorkIdRef.current === workId || deletedTextWorkIdsRef.current.has(workId);
   const [textUploadTitle, setTextUploadTitle] = useState("");
   const [textUploadAuthor, setTextUploadAuthor] = useState("");
   const [textUploadContent, setTextUploadContent] = useState("");
@@ -1520,6 +1528,7 @@ export default function Home() {
 
   const [selectedStory, setSelectedStory] = useState<StoryKey>("wagahai");
   const [hasSelectedWork, setHasSelectedWork] = useState(false);
+  const [isLibraryPickerOpen, setIsLibraryPickerOpen] = useState(false);
   const hasSelectedWorkRef = useRef(false);
   const [currentWork, setCurrentWork] = useState<CurrentWork>(() =>
     createPresetWork("wagahai"),
@@ -2423,6 +2432,7 @@ void saveReadingEvent("layout_change").catch((error) => {
       throw new Error("TXT作品が見つかりませんでした");
     }
 
+    if (isTextWorkSaveBlocked(workId)) return;
     const data = workSnap.data() as Partial<StoredTextWork>;
 
     if (data.type !== "text" || typeof data.rawText !== "string") {
@@ -2462,6 +2472,9 @@ void saveReadingEvent("layout_change").catch((error) => {
       throw new Error("TXT本文を整形できませんでした");
     }
 
+    textLoadRequestIdRef.current += 1;
+    setOwnedTextWorkId(data.ownerId === authUser.uid ? workId : null);
+    setTextDeleteError("");
     setLoadMode("text");
     setCurrentWork(textWork);
     currentWorkRef.current = textWork;
@@ -2496,6 +2509,305 @@ void saveReadingEvent("layout_change").catch((error) => {
     });
   };
 
+
+  const handleDeleteTextWork = async (targetWork?: RegisteredTextWork) => {
+    const user = auth.currentUser;
+    if (!user || user.uid !== authUser?.uid || deletingTextWorkIdRef.current) return;
+
+    const current = currentWorkRef.current;
+    const work = targetWork
+      ? {
+          workId: targetWork.workId,
+          type: "text" as const,
+          title: targetWork.title,
+          author: targetWork.author,
+          sourceUrl: "",
+        }
+      : current;
+
+    if (work.type !== "text" || !work.workId) return;
+
+    if (
+      !window.confirm(
+        `『${work.title}』をマイライブラリから削除しますか？ この操作は取り消せません。`,
+      )
+    ) {
+      return;
+    }
+
+    deletingTextWorkIdRef.current = work.workId;
+    setIsDeletingTextWork(true);
+    setTextDeleteError("");
+
+    try {
+      await waitForPendingWrites(db);
+
+      await runTransaction(db, async (transaction) => {
+        const workRef = doc(db, "works", work.workId);
+        const snapshot = await transaction.get(workRef);
+
+        if (auth.currentUser?.uid !== user.uid) {
+          throw new Error(
+            "ログイン状態が変わりました。再度ログインしてください。",
+          );
+        }
+
+        if (!snapshot.exists()) {
+          throw new Error(
+            "作品が見つかりません。削除は完了していません。",
+          );
+        }
+
+        const data = snapshot.data();
+
+        if (data.type !== "text" || data.ownerId !== user.uid) {
+          throw new Error(
+            "自分で追加したTXT作品だけ削除できます。",
+          );
+        }
+
+        transaction.delete(workRef);
+        transaction.delete(
+          doc(db, "readingProgress", `${user.uid}_${work.workId}`),
+        );
+      });
+
+      deletedTextWorkIdsRef.current.add(work.workId);
+
+      setRegisteredTextWorks((works) =>
+        works.filter((item) => item.workId !== work.workId),
+      );
+
+      setUserReadingProgresses((progresses) =>
+        progresses.filter((item) => item.workId !== work.workId),
+      );
+
+      if (currentWorkRef.current.workId === work.workId) {
+        hasSelectedWorkRef.current = false;
+        setHasSelectedWork(false);
+        textLoadRequestIdRef.current += 1;
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = null;
+        layoutSwitchTargetRef.current = null;
+        setOwnedTextWorkId(null);
+
+        const emptyWork: CurrentWork = {
+          workId: "",
+          type: "preset",
+          title: "",
+          author: "",
+          sourceUrl: "",
+        };
+
+        currentWorkRef.current = emptyWork;
+        setCurrentWork(emptyWork);
+        setLoadMode("preset");
+        setCustomTitle("");
+        setCustomAuthor("");
+        setTextUploadTitle("");
+        setTextUploadAuthor("");
+        setTextUploadContent("");
+        setTextUploadFileName("");
+        setParagraphs([]);
+        paragraphRefs.current = [];
+        readingUnitsLengthRef.current = 0;
+        currentParagraphIndexRef.current = 0;
+        lastStableParagraphIndexRef.current = 0;
+        setCurrentParagraphIndex(0);
+        bookmarksRef.current = [null, null, null, null];
+        setBookmarks([null, null, null, null]);
+        setReturnIndex(null);
+        setIsAutoScroll(false);
+        setSelectedWord("");
+        setSearchWord("");
+        setWikiMeaning("");
+        setReadingProgressNotice("");
+        restoreGuardUntilRef.current = 0;
+        isRestoringProgressRef.current = false;
+        isProgrammaticScrollRef.current = false;
+        isInitialProgressResolvedRef.current = false;
+
+        if (scrollFrameRef.current !== null) {
+          cancelAnimationFrame(scrollFrameRef.current);
+        }
+
+        scrollFrameRef.current = null;
+
+        if (progressNoticeTimerRef.current !== null) {
+          window.clearTimeout(progressNoticeTimerRef.current);
+        }
+      }
+
+      try {
+        const key = `${LAST_READING_STATE_KEY}_${user.uid}`;
+        const saved = window.localStorage.getItem(key);
+
+        if (saved && JSON.parse(saved).workId === work.workId) {
+          window.localStorage.removeItem(key);
+        }
+      } catch (error) {
+        console.error(
+          "削除作品のローカル読書状態の消去失敗",
+          error,
+        );
+      }
+    } catch (error) {
+      console.error("TXT作品削除失敗", error);
+
+      setTextDeleteError(
+        error instanceof Error
+          ? error.message
+          : "作品の削除に失敗しました。もう一度お試しください。",
+      );
+    } finally {
+      deletingTextWorkIdRef.current = null;
+      setIsDeletingTextWork(false);
+    }
+  };
+
+  const registeredWorkPicker = (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsLibraryPickerOpen((open) => !open)}
+        aria-expanded={isLibraryPickerOpen}
+        className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 text-left text-sm font-bold text-gray-700 transition hover:border-gray-300 hover:bg-[#fffdf8]"
+      >
+        <span className="min-w-0 flex-1 truncate">
+          {hasSelectedWork
+            ? currentWork.type === "preset"
+              ? `${currentWork.title}${
+                  storyProgressSummaries[selectedStory]
+                    ? `（${storyProgressSummaries[selectedStory].percent}%）`
+                    : "（未読）"
+                }`
+              : `${currentWork.title} ／ ${currentWork.author}${
+                  userReadingProgresses.find(
+                    (item) => item.workId === currentWork.workId,
+                  )
+                    ? `（${
+                        userReadingProgresses.find(
+                          (item) => item.workId === currentWork.workId,
+                        )!.percent
+                      }%）`
+                    : "（未読）"
+                }`
+            : "作品を選択してください"}
+        </span>
+
+        <span
+          aria-hidden="true"
+          className={`ml-3 shrink-0 text-xs text-gray-400 transition-transform ${
+            isLibraryPickerOpen ? "rotate-180" : ""
+          }`}
+        >
+          ▼
+        </span>
+      </button>
+
+      {isLibraryPickerOpen && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg">
+          {Object.entries(stories).map(([key, story]) => {
+            const storyKey = key as StoryKey;
+            const progress = storyProgressSummaries[storyKey];
+
+            return (
+              <button
+                key={`preset:${key}`}
+                type="button"
+                onClick={() => {
+                  setIsLibraryPickerOpen(false);
+                  void handleSelectRegisteredWork(`preset:${key}`);
+                }}
+                className="flex w-full items-center border-b border-gray-100 px-4 py-3 text-left text-sm font-bold text-gray-700 transition last:border-b-0 hover:bg-[#fffaf0]"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {story.title}{" "}
+                  {progress ? `（${progress.percent}%）` : "（未読）"}
+                </span>
+              </button>
+            );
+          })}
+
+          {registeredUrlWorks.map((work) => {
+            const progress = userReadingProgresses.find(
+              (item) => item.workId === work.workId,
+            );
+
+            return (
+              <button
+                key={`url:${work.workId}`}
+                type="button"
+                onClick={() => {
+                  setIsLibraryPickerOpen(false);
+                  void handleSelectRegisteredWork(`url:${work.workId}`);
+                }}
+                className="flex w-full items-center border-b border-gray-100 px-4 py-3 text-left text-sm font-bold text-gray-700 transition last:border-b-0 hover:bg-[#fffaf0]"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {work.title} ／ {work.author}{" "}
+                  {progress ? `（${progress.percent}%）` : "（未読）"}
+                </span>
+              </button>
+            );
+          })}
+
+          {registeredTextWorks.map((work) => {
+            const progress = userReadingProgresses.find(
+              (item) => item.workId === work.workId,
+            );
+
+            return (
+              <div
+                key={`text:${work.workId}`}
+                className="flex items-center border-b border-gray-100 last:border-b-0 hover:bg-[#fffaf0]"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLibraryPickerOpen(false);
+                    void handleSelectRegisteredWork(`text:${work.workId}`);
+                  }}
+                  className="min-w-0 flex-1 px-4 py-3 text-left text-sm font-bold text-gray-700"
+                >
+                  <span className="block truncate">
+                    {work.title} ／ {work.author}{" "}
+                    {progress ? `（${progress.percent}%）` : "（未読）"}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  aria-label={`『${work.title}』を削除`}
+                  title="マイライブラリから削除"
+                  disabled={
+                    isDeletingTextWork &&
+                    deletingTextWorkIdRef.current === work.workId
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleDeleteTextWork(work);
+                  }}
+                  className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base font-medium text-gray-300 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-40"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {textDeleteError && (
+        <p
+          role="alert"
+          className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-600"
+        >
+          {textDeleteError}
+        </p>
+      )}
+    </div>
+  );
 
   const handleSaveTextWork = async () => {
     if (!authUser) {
@@ -2901,6 +3213,7 @@ void saveReadingEvent("layout_change").catch((error) => {
         doc(db, "readingProgress", progressDocId),
       );
 
+      if (isTextWorkSaveBlocked(workId)) return null;
       if (!progressSnap.exists()) {
         const emptyBookmarks: (number | null)[] = [
           null,
@@ -3262,6 +3575,7 @@ if (readingSessionHiddenAtRef.current !== null) {
       getFallbackCurrentWork(selectedStoryRef.current);
 
     const safeIndex = Math.max(0, Math.min(nextIndex, unitsLength - 1));
+    if (isTextWorkSaveBlocked(activeWork.workId)) return;
     const progressDocId = `${authUser.uid}_${activeWork.workId}`;
     const percent = getDisplayPercent(safeIndex, unitsLength);
 
@@ -3399,7 +3713,11 @@ if (readingSessionHiddenAtRef.current !== null) {
       );
     }
 
+    const restoringWorkId = currentWorkRef.current.workId;
+    const canRestore = () => hasSelectedWorkRef.current &&
+      currentWorkRef.current.workId === restoringWorkId && !isTextWorkSaveBlocked(restoringWorkId);
     const lockSavedPosition = () => {
+      if (!canRestore()) return;
       setCurrentParagraphIndex(safeIndex);
       currentParagraphIndexRef.current = safeIndex;
       lastStableParagraphIndexRef.current = safeIndex;
@@ -3423,6 +3741,7 @@ if (readingSessionHiddenAtRef.current !== null) {
         }
 
         window.setTimeout(() => {
+          if (!canRestore()) return;
           lockSavedPosition();
 
           const activeWork = currentWorkRef.current;
@@ -3813,7 +4132,7 @@ useEffect(() => {
 }, [authUser?.uid, readingUnits.length, currentWork.workId]);
 
   useEffect(() => {
-    if (loadMode === "url") return;
+    if (loadMode !== "preset") return;
 
     if (!hasSelectedWork) {
       setParagraphs([]);
@@ -4183,14 +4502,46 @@ useEffect(() => {
 
     const q = query(collection(db, "readingProgress"));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const userProgresses = snapshot.docs
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const candidateProgresses = snapshot.docs
         .map((docData) => ({
           ...normalizeUserReadingProgress(docData.data()),
           docId: docData.id,
         }))
         .filter((progress) => progress.userId === authUser.uid)
-        .filter((progress) => progress.workId.trim() !== "");
+        .filter((progress) => progress.workId.trim() !== "")
+        .filter((progress) => !deletedTextWorkIdsRef.current.has(progress.workId));
+
+      const textWorkIds = Array.from(
+        new Set(
+          candidateProgresses
+            .filter((progress) => progress.workType === "text")
+            .map((progress) => progress.workId),
+        ),
+      );
+
+      const existingTextWorkIds = new Set<string>();
+
+      await Promise.all(
+        textWorkIds.map(async (workId) => {
+          try {
+            const workSnapshot = await getDoc(doc(db, "works", workId));
+            if (workSnapshot.exists()) {
+              existingTextWorkIds.add(workId);
+            }
+          } catch (error) {
+            console.error("TXT作品の存在確認に失敗", workId, error);
+            // 一時的な通信エラーでは作品を一覧から消さない。
+            existingTextWorkIds.add(workId);
+          }
+        }),
+      );
+
+      const userProgresses = candidateProgresses.filter(
+        (progress) =>
+          progress.workType !== "text" ||
+          existingTextWorkIds.has(progress.workId),
+      );
 
       const latestByWorkId = new Map<string, UserReadingProgress>();
 
@@ -4202,6 +4553,7 @@ useEffect(() => {
       });
 
       latestByWorkId.forEach((latest) => {
+        if (isTextWorkSaveBlocked(latest.workId)) return;
         const canonicalDocId = `${authUser.uid}_${latest.workId}`;
 
         if (latest.docId !== canonicalDocId) {
@@ -4230,6 +4582,7 @@ useEffect(() => {
       });
 
       userProgresses.forEach((progress) => {
+        if (isTextWorkSaveBlocked(progress.workId)) return;
         const canonicalDocId = `${authUser.uid}_${progress.workId}`;
         const latest = latestByWorkId.get(progress.workId);
 
@@ -4888,6 +5241,7 @@ if (readingSessionIdRef.current) {
 
     if (!activeWork?.workId) return;
 
+    if (isTextWorkSaveBlocked(activeWork.workId)) return;
     const progressDocId = `${authUser.uid}_${activeWork.workId}`;
 
     void setDoc(
@@ -5437,6 +5791,7 @@ if (readingSessionIdRef.current) {
               </div>
             )}
 
+            
             <details className="group mt-3 rounded-2xl border border-[#eee7dc] bg-[#fffaf0]">
               <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-bold text-gray-700">
                 <span>＋ 別の作品を開く</span>
@@ -5470,70 +5825,7 @@ if (readingSessionIdRef.current) {
                   ))}
                 </div>
 
-                {loadMode === "preset" && (
-                  <select
-                    value={
-                      hasSelectedWork
-                        ? currentWork.type === "url"
-                          ? `url:${currentWork.workId}`
-                          : `preset:${selectedStory}`
-                        : ""
-                    }
-                    onChange={(event) => {
-                      void handleSelectRegisteredWork(event.target.value);
-                    }}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#c79a53]"
-                  >
-                    <option value="" disabled>
-                      作品を選択してください
-                    </option>
-
-                    {Object.entries(stories).map(([key, story]) => {
-                      const storyKey = key as StoryKey;
-                      const progress = storyProgressSummaries[storyKey];
-
-                      return (
-                        <option key={`preset:${key}`} value={`preset:${key}`}>
-                          {story.title}{" "}
-                          {progress ? `（${progress.percent}%）` : "（未読）"}
-                        </option>
-                      );
-                    })}
-
-                    {registeredUrlWorks.map((work) => {
-                      const progress = userReadingProgresses.find(
-                        (item) => item.workId === work.workId,
-                      );
-
-                      return (
-                        <option
-                          key={`url:${work.workId}`}
-                          value={`url:${work.workId}`}
-                        >
-                          {work.title} ／ {work.author}{" "}
-                          {progress ? `（${progress.percent}%）` : "（未読）"}
-                        </option>
-                      );
-                    })}
-
-                    {registeredTextWorks.map((work) => {
-                      const progress = userReadingProgresses.find(
-                        (item) => item.workId === work.workId,
-                      );
-
-                      return (
-                        <option
-                          key={`text:${work.workId}`}
-                          value={`text:${work.workId}`}
-                        >
-                          {work.title} ／ {work.author}{" "}
-                          {progress ? `（${progress.percent}%）` : "（未読）"}
-                        </option>
-                      );
-                    })}
-
-                  </select>
-                )}
+                {loadMode === "preset" && registeredWorkPicker}
 
                 {loadMode === "text" && (
                   <div className="grid gap-3">
@@ -6771,6 +7063,7 @@ if (readingSessionIdRef.current) {
                   </div>
                 </div>
 
+                
                 <details className="rounded-2xl border border-[#eee7dc] bg-white">
                   <summary className="cursor-pointer list-none px-4 py-3 text-sm font-black text-gray-800">
                     ＋ 別の作品を開く
@@ -6809,51 +7102,7 @@ if (readingSessionIdRef.current) {
                       </button>
                     </div>
 
-                    {loadMode === "preset" && (
-                      <select
-                        value={
-                          hasSelectedWork
-                            ? currentWork.type === "url"
-                              ? `url:${currentWork.workId}`
-                              : `preset:${selectedStory}`
-                            : ""
-                        }
-                        onChange={(event) => {
-                          void handleSelectRegisteredWork(event.target.value);
-                          setMobilePanel(null);
-                        }}
-                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold outline-none"
-                      >
-                        <option value="" disabled>
-                          作品を選択してください
-                        </option>
-
-                        {Object.entries(stories).map(([key, story]) => (
-                          <option
-                            key={`preset:${key}`}
-                            value={`preset:${key}`}
-                          >
-                            {story.title}
-                          </option>
-                        ))}
-
-                        {registeredUrlWorks.map((work) => {
-                      const progress = userReadingProgresses.find(
-                        (item) => item.workId === work.workId,
-                      );
-
-                      return (
-                        <option
-                          key={`url:${work.workId}`}
-                          value={`url:${work.workId}`}
-                        >
-                          {work.title} ／ {work.author}{" "}
-                          {progress ? `（${progress.percent}%）` : "（未読）"}
-                        </option>
-                      );
-                    })}
-                      </select>
-                    )}
+                    {loadMode === "preset" && registeredWorkPicker}
 
                     {loadMode === "url" && (
                       <div className="space-y-2">
