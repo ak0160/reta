@@ -802,8 +802,9 @@ function isChapterHeading(line: string) {
     return true;
   }
 
-  // 青空文庫で使われる「一」「二」などの章番号。
-  if (KANJI_NUMERAL_PATTERN.test(trimmedLine)) {
+  // 独立行の「1」「2」「10」や、青空文庫の「一」「二」などの章・節番号。
+  // PDF照合済みTXTではノンブルを除外し、本文の節番号を独立行に残している。
+  if (/^[0-9０-９]+$/.test(trimmedLine) || KANJI_NUMERAL_PATTERN.test(trimmedLine)) {
     return true;
   }
 
