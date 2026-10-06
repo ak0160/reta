@@ -1460,7 +1460,7 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setShowSplash(false);
-    }, 4000);
+    }, 3000);
 
     return () => window.clearTimeout(timer);
   }, []);
@@ -5361,45 +5361,52 @@ if (readingSessionIdRef.current) {
 
   if (showSplash) {
     return (
-      <main className="reta-splash">
-        <div className="reta-splash-light reta-splash-light-one" />
-        <div className="reta-splash-light reta-splash-light-two" />
+      <main className="reta-splash reta-book-splash">
+        <div className="reta-book-stage">
+          <div className="reta-book">
+            <div className="reta-book-back">
+              <div className="reta-book-final">
+                <span className="reta-book-final-mark">ReTA</span>
+                <span className="reta-book-final-sub">
+                  Reading Together, Apart
+                </span>
+              </div>
+            </div>
 
-        <div className="reta-splash-content">
-          <div className="reta-splash-logo" aria-label="ReTA">
-            <svg
-              className="reta-handwriting"
-              viewBox="0 0 500 170"
-              role="img"
-              aria-label="ReTA"
-            >
-              <text
-                x="250"
-                y="125"
-                textAnchor="middle"
-                className="reta-handwriting-stroke"
-              >
-                ReTA
-              </text>
+            <div className="reta-flip-paper reta-flip-paper-1" />
+            <div className="reta-flip-paper reta-flip-paper-2" />
+            <div className="reta-flip-paper reta-flip-paper-3" />
+            <div className="reta-flip-paper reta-flip-paper-4" />
+            <div className="reta-flip-paper reta-flip-paper-5" />
+            <div className="reta-flip-paper reta-flip-paper-6" />
+            <div className="reta-flip-paper reta-flip-paper-7" />
+            <div className="reta-flip-paper reta-flip-paper-8" />
+            <div className="reta-flip-paper reta-flip-paper-9" />
+            <div className="reta-flip-paper reta-flip-paper-10" />
+            <div className="reta-flip-paper reta-flip-paper-11" />
+            <div className="reta-flip-paper reta-flip-paper-12" />
+            <div className="reta-flip-paper reta-flip-paper-13" />
+            <div className="reta-flip-paper reta-flip-paper-14" />
+            <div className="reta-flip-paper reta-flip-paper-15" />
+            <div className="reta-flip-paper reta-flip-paper-16" />
+            <div className="reta-flip-paper reta-flip-paper-17" />
+            <div className="reta-flip-paper reta-flip-paper-18" />
+            <div className="reta-flip-paper reta-flip-paper-19" />
+            <div className="reta-flip-paper reta-flip-paper-20" />
+            <div className="reta-flip-paper reta-flip-paper-21" />
+            <div className="reta-flip-paper reta-flip-paper-22" />
+            <div className="reta-flip-paper reta-flip-paper-23" />
+            <div className="reta-flip-paper reta-flip-paper-24" />
 
-              <text
-                x="250"
-                y="125"
-                textAnchor="middle"
-                className="reta-handwriting-fill"
-              >
-                ReTA
-              </text>
-            </svg>
+            <div className="reta-book-cover">
+              <img
+                src="/reta-logo.png"
+                alt="ReTA - Reading Together, Apart"
+              />
+            </div>
           </div>
 
-          <p className="reta-splash-tagline">
-            READING TOGETHER, APART
-          </p>
-        </div>
-
-        <div className="reta-splash-progress">
-          <span />
+          <div className="reta-book-shadow" />
         </div>
       </main>
     );
