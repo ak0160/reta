@@ -1,5 +1,6 @@
 "use client";
 
+import FriendsPanel from "./friends-panel";
 import { dictionary } from "./dictionary";
 import { stories, type StoryKey } from "./stories";
 import {
@@ -3325,6 +3326,46 @@ void saveReadingEvent("layout_change").catch((error) => {
   };
 
   const handleOpenReadingProgress = async (progress: UserReadingProgress) => {
+    if (progress.workType === "text") {
+      // 履歴自身のworkIdで既存のTXT読込・復元処理を使用する。
+      // 読込待ちの間に初期preset作品が選択されるのを防ぐ。
+      setLoadMode("text");
+      setHasSelectedWork(true);
+      hasSelectedWorkRef.current = true;
+      setTextUploadError("");
+      setIsAutoScroll(false);
+      isRestoringProgressRef.current = true;
+      isInitialProgressResolvedRef.current = false;
+
+      try {
+        if (
+          readingSessionIdRef.current &&
+          currentWorkRef.current.workId !== progress.workId
+        ) {
+          await endReadingSession();
+        }
+
+        const savedProgress = await loadReadingProgressFromFirestore(progress.workId);
+        pendingResumeProgressRef.current = savedProgress;
+        pendingFreshStartWorkIdRef.current = savedProgress ? null : progress.workId;
+        if (savedProgress) {
+          setLayoutMode(savedProgress.layoutMode);
+          layoutModeRef.current = savedProgress.layoutMode;
+        }
+
+        await openStoredTextWork(progress.workId, true);
+      } catch (error) {
+        console.error("履歴からTXT作品の読み込み失敗", error);
+        setTextUploadError(
+          error instanceof Error ? error.message : "履歴からTXT作品を開けませんでした",
+        );
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = null;
+        isRestoringProgressRef.current = false;
+      }
+      return;
+    }
+
     setHasSelectedWork(true);
     hasSelectedWorkRef.current = true;
     if (
@@ -5554,6 +5595,8 @@ if (readingSessionIdRef.current) {
             </button>
           </div>
 
+          <div className="mt-4 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
+
           <div className="mt-8 grid gap-6 md:grid-cols-2">
             <section className="rounded-3xl border border-[#eee3df] bg-[#fff8f7] p-5">
               <p className="text-xs font-bold tracking-[0.18em] text-[#a6445a]">
@@ -5644,6 +5687,7 @@ if (readingSessionIdRef.current) {
       className="reta-workspace min-h-screen bg-[#faf7f3] px-2 pb-24 pt-2 outline-none sm:px-4 sm:pb-24 sm:pt-4 lg:py-6"
     >
       <div className="mx-auto max-w-7xl">
+        <div className="mb-3 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
         <header className="reta-reader-header mb-3 rounded-2xl border border-[#eee3df] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(30,41,59,0.06)] lg:hidden">
           <div className="flex items-start justify-between gap-3">
             <img
@@ -5722,33 +5766,36 @@ if (readingSessionIdRef.current) {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
-              <span className="rounded-full bg-[#fcf0f1] px-3 py-2 text-[#a6445a]">
-                👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}人参加
-              </span>
-              <span className="rounded-full bg-[#fcf0f1] px-3 py-2 text-[#a6445a]">
-                グループ：{currentGroup.name}
-              </span>
-              <span className="rounded-full border border-[#eed5d8] bg-white px-3 py-2 text-[#a6445a]">
-                参加コード：{currentGroup.code}
-              </span>
-              <span className="rounded-full bg-gray-100 px-3 py-2 text-gray-600">
-                {username || "利用者"}でログイン中
-              </span>
-              <button
-                type="button"
-                onClick={() => void handleLeaveGroup()}
-                className="rounded-full border border-[#eed5d8] bg-white px-3 py-2 text-[#a6445a] transition hover:bg-[#fff8f7]"
-              >
-                グループを退会
-              </button>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="rounded-full border border-gray-200 bg-white px-3 py-2 text-gray-500 transition hover:border-gray-300 hover:text-gray-900"
-              >
-                ログアウト
-              </button>
+            <div className="min-w-0 text-xs lg:max-w-[34rem]">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 font-semibold leading-relaxed text-[#a6445a]">
+                <span>👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}人参加</span>
+                <span aria-hidden="true" className="text-[#d5b8bd]">·</span>
+                <span className="break-words">グループ {currentGroup.name}</span>
+                <span aria-hidden="true" className="text-[#d5b8bd]">·</span>
+                <span className="break-all">参加コード {currentGroup.code}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-[#eee3df] pt-2">
+                <span className="min-w-0 break-words text-gray-500">
+                  {username || "利用者"}でログイン中
+                </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleLeaveGroup()}
+                    aria-label="グループを退会"
+                    className="rounded-md px-1 py-2 font-medium text-[#a6445a] transition hover:bg-[#fff3f5]"
+                  >
+                    退会
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded-md px-1 py-2 font-medium text-gray-500 transition hover:bg-[#f5f0ed]"
+                  >
+                    ログアウト
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
