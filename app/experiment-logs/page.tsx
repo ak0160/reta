@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 
 type ReadingSession = {
   id: string;
+  userId?: string;
+  workId?: string;
+  workType?: string;
+  author?: string;
+  sourceUrl?: string;
   username?: string;
   title?: string;
   mode?: "solo" | "shared";
@@ -19,6 +24,7 @@ type ReadingSession = {
 
 type ReadingEvent = {
   id: string;
+  userId?: string;
   sessionId?: string;
   type?: string;
   createdAt?: number;
@@ -116,6 +122,22 @@ const formatDuration = (durationMs?: number) => {
   return `${minutes}分${seconds}秒`;
 };
 
+// CSVは表示中のイベントのみを出力する。保存済みの値は補正しない。
+const csvCell = (value: unknown) => {
+  const text = value === null || value === undefined ? "" : String(value);
+  // 表計算ソフトによる利用者名・コメント等の数式実行を防ぐ。
+  const safeText = /^[=+\-@\t\r\n]/.test(text) ? `'${text}` : text;
+  return `"${safeText.replace(/"/g, '\"\"')}"`;
+};
+
+const csvDateTime = (timestamp?: number | null) => {
+  if (timestamp === null || timestamp === undefined || !Number.isFinite(timestamp)) return "";
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).format(new Date(timestamp));
+};
+
 export default function ExperimentLogsPage() {
   const [sessions, setSessions] = useState<ReadingSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -124,7 +146,10 @@ export default function ExperimentLogsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const eventRequestRef = useRef(0);
+
   const loadEvents = async (sessionId: string) => {
+    const requestId = ++eventRequestRef.current;
     setSelectedSessionId(sessionId);
     setIsEventLoading(true);
     setEvents([]);
@@ -146,11 +171,11 @@ export default function ExperimentLogsPage() {
         (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
       );
 
-      setEvents(loadedEvents);
+      if (requestId === eventRequestRef.current) setEvents(loadedEvents);
     } catch (loadError) {
       console.error("読書イベント取得失敗", loadError);
     } finally {
-      setIsEventLoading(false);
+      if (requestId === eventRequestRef.current) setIsEventLoading(false);
     }
   };
 
@@ -194,6 +219,34 @@ export default function ExperimentLogsPage() {
 
   const selectedSession =
     sessions.find((session) => session.id === selectedSessionId) ?? null;
+
+  const downloadCsv = () => {
+    if (!selectedSession || isEventLoading || events.length === 0) return;
+    const headers = [
+      "日時（日本時間）", "日時（Unixミリ秒）", "参加者", "参加者UID", "イベント種類", "イベント種別コード",
+      "イベントID", "セッションID", "作品名", "著者", "作品ID", "作品種類", "作品URL", "読書モード",
+      "段落インデックス（0始まり）", "進捗（%）", "レイアウト", "グループID", "リアクション", "コメント",
+      "セッション開始日時（日本時間）", "セッション終了日時（日本時間）", "イベント記録（JSON）", "セッション記録（JSON）",
+    ];
+    const rows = events.map(event => [
+      csvDateTime(event.createdAt), event.createdAt, selectedSession.username, event.userId ?? selectedSession.userId,
+      getEventLabel(event.type), event.type, event.id, event.sessionId ?? selectedSession.id,
+      selectedSession.title, selectedSession.author, selectedSession.workId, selectedSession.workType,
+      selectedSession.sourceUrl, selectedSession.mode, event.paragraphIndex, event.percent, event.layoutMode,
+      event.groupId, event.reactionEmoji, event.reactionComment, csvDateTime(selectedSession.startedAt),
+      csvDateTime(selectedSession.endedAt), JSON.stringify(event), JSON.stringify(selectedSession),
+    ]);
+    const csv = "\uFEFF" + [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `reta-experiment-events-${selectedSession.id.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // ブラウザがダウンロードを開始するまでURLを維持する。
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   const positionEvents = events.filter(
     (event) => event.type === "position",
@@ -315,6 +368,14 @@ export default function ExperimentLogsPage() {
                   <p className="mt-1 text-sm font-bold text-gray-700">
                     {sessions.length}件の読書セッション
                   </p>
+                </div>
+                <div className="text-right">
+                  <button type="button" onClick={downloadCsv}
+                    disabled={!selectedSession || isEventLoading || events.length === 0}
+                    className="rounded-xl border border-[#eee3d2] bg-white px-4 py-2 text-sm font-bold text-[#9a651f] disabled:cursor-not-allowed disabled:opacity-40">
+                    表示中のイベントをCSVでダウンロード
+                  </button>
+                  <p className="mt-1 text-xs text-gray-500">セッションを選択すると、そのイベントを出力できます（日本時間）。</p>
                 </div>
               </div>
 
