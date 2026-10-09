@@ -69,6 +69,25 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/groupWorkShares/$(get(access).data.groupId)/works/$(workId))
         && get(/databases/$(database)/documents/groupWorkShares/$(get(access).data.groupId)/works/$(workId)).data.ownerId == resource.data.ownerId;
     }
+    function savedWorkAllowed(workId) {
+      let saved = /databases/$(database)/documents/savedSharedWorks/$(request.auth.uid)/works/$(workId);
+      return exists(saved) && get(saved).data.ownerId == resource.data.ownerId;
+    }
+    match /savedSharedWorks/{uid}/works/{workId} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid && sharingEnabled()
+        && request.resource.data.keys().hasAll(['workId', 'title', 'author', 'ownerId', 'sourceGroupId', 'savedAt'])
+        && request.resource.data.keys().hasOnly(['workId', 'title', 'author', 'ownerId', 'sourceGroupId', 'savedAt'])
+        && request.resource.data.workId == workId && request.resource.data.savedAt is int
+        && groupMember(request.resource.data.sourceGroupId)
+        && exists(/databases/$(database)/documents/groupWorkShares/$(request.resource.data.sourceGroupId)/works/$(workId))
+        && get(/databases/$(database)/documents/groupWorkShares/$(request.resource.data.sourceGroupId)/works/$(workId)).data.ownerId == request.resource.data.ownerId
+        && get(/databases/$(database)/documents/works/$(workId)).data.type == 'text'
+        && get(/databases/$(database)/documents/works/$(workId)).data.ownerId == request.resource.data.ownerId
+        && get(/databases/$(database)/documents/works/$(workId)).data.title == request.resource.data.title
+        && get(/databases/$(database)/documents/works/$(workId)).data.author == request.resource.data.author;
+      allow update: if false;
+    }
     function publicWork(data) {
       return data.type in ['preset', 'url'] && !('rawText' in data) && !('ownerId' in data);
     }
@@ -80,7 +99,7 @@ service cloud.firestore {
       allow get: if (!exists(/databases/$(database)/documents/works/$(workId)) && signedIn())
         || publicWork(resource.data)
         || (signedIn() && resource.data.type == 'text'
-          && (resource.data.ownerId == request.auth.uid || sharedWorkAllowed(workId)));
+          && (resource.data.ownerId == request.auth.uid || sharedWorkAllowed(workId) || savedWorkAllowed(workId)));
       allow list: if publicWork(resource.data)
         || (signedIn() && resource.data.type == 'text' && resource.data.ownerId == request.auth.uid);
       allow create: if signedIn() && request.resource.data.workId == workId
@@ -179,8 +198,8 @@ service cloud.firestore {
     // 専用ルールのコレクションを包括許可から必ず除外する。
     // 全件allowを残すと専用ルールを迂回できるため、必ず置き換える。
     match /{collectionName}/{document=**} {
-      allow read: if !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess']);
-      allow write: if signedIn() && !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess']);
+      allow read: if !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess', 'savedSharedWorks']);
+      allow write: if signedIn() && !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess', 'savedSharedWorks']);
     }
   }
 }

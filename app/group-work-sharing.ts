@@ -58,3 +58,44 @@ export async function shareOwnedTextWork(db: Firestore, uid: string, username: s
     return true;
   });
 }
+
+
+export type SavedSharedWork = {
+  workId: string;
+  title: string;
+  author: string;
+  ownerId: string;
+  sourceGroupId: string;
+  savedAt: number;
+};
+
+export function parseSavedSharedWork(id: string, data: Record<string, unknown>): SavedSharedWork {
+  if (data.workId !== id || ![data.title, data.author, data.ownerId, data.sourceGroupId].every(value => typeof value === "string") || typeof data.savedAt !== "number") {
+    throw new Error("保存した作品の情報が正しくありません。");
+  }
+  return data as unknown as SavedSharedWork;
+}
+
+export async function getSavedSharedWork(db: Firestore, uid: string, workId: string) {
+  const snapshot = await getDocFromServer(doc(db, "savedSharedWorks", uid, "works", workId));
+  return snapshot.exists() ? parseSavedSharedWork(workId, snapshot.data()) : null;
+}
+
+// 明示的な保存だけが退出後の閲覧権限になる。本文とworkIdは複製しない。
+export async function saveSharedTextWork(db: Firestore, uid: string, groupId: string, workId: string) {
+  const shared = await prepareSharedTextWork(db, uid, groupId, workId);
+  return runTransaction(db, async transaction => {
+    const reference = doc(db, "savedSharedWorks", uid, "works", workId);
+    const existing = await transaction.get(reference);
+    if (existing.exists()) {
+      const saved = parseSavedSharedWork(workId, existing.data());
+      if (saved.ownerId !== shared.ownerId) throw new Error("保存情報と作品が一致しません。");
+      return false;
+    }
+    transaction.set(reference, {
+      workId, title: shared.title, author: shared.author, ownerId: shared.ownerId,
+      sourceGroupId: groupId, savedAt: Date.now(),
+    });
+    return true;
+  });
+}

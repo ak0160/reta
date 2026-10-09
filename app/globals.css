@@ -1798,3 +1798,36 @@ rt {
   border-color: #d8899a;
   background-color: #fff3f5;
 }
+
+
+/* タブレット縦向きの操作だけを現在のブランド配色に統一。本文・レイアウトは維持。 */
+@media (min-width: 640px) and (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
+  .reta-workspace .reta-mobile-panel,
+  .reta-workspace .reta-mobile-nav {
+    background-color: #fffdfa;
+    border-color: #eed5d8;
+  }
+
+  .reta-workspace .reta-mobile-panel [class~="bg-gray-100"] {
+    background-color: #fcf0f1;
+  }
+
+  .reta-workspace .reta-mobile-panel button[class~="bg-[#fff3d6]"] {
+    background-color: #f9e2e7;
+    color: #a6445a;
+  }
+
+  .reta-workspace .reta-mobile-panel [class~="bg-yellow-50"] {
+    background-color: #fff3f5;
+  }
+
+  .reta-workspace .reta-mobile-panel button[class~="bg-yellow-300"],
+  .reta-workspace .reta-mobile-panel button[class~="bg-[#f3cf7a]"] {
+    background-color: #bf596f;
+    color: white;
+  }
+
+  .reta-workspace .reta-mobile-panel input[type="range"] {
+    accent-color: #bf596f;
+  }
+}
