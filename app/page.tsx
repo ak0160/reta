@@ -2,7 +2,8 @@
 
 import FriendsPanel from "./friends-panel";
 import GroupWorkSharingPanel from "./group-work-sharing-panel";
-import { prepareSharedTextWork } from "./group-work-sharing";
+import SavedSharedWorksPanel from "./saved-shared-works-panel";
+import { getSavedSharedWork, prepareSharedTextWork, type SavedSharedWork } from "./group-work-sharing";
 import { dictionary } from "./dictionary";
 import { stories, type StoryKey } from "./stories";
 import {
@@ -54,6 +55,7 @@ type Participant = {
   groupId: string;
   workId: string;
   isReading: boolean;
+  readerMode?: ReaderMode;
   paragraphIndex: number;
   joinedAt: number;
   updatedAt: number;
@@ -555,6 +557,7 @@ function normalizeParticipant(
     groupId: typeof raw.groupId === "string" ? raw.groupId : "",
     workId: typeof raw.workId === "string" ? raw.workId : "",
     isReading: raw.isReading === true,
+    readerMode: raw.readerMode === "reading" ? "reading" : "shared",
     paragraphIndex: Number(raw.paragraphIndex ?? 0),
     joinedAt: Number(raw.joinedAt ?? now),
     updatedAt: Number(raw.updatedAt ?? 0),
@@ -1478,6 +1481,9 @@ export default function Home() {
   const sessionIdRef = useRef("");
 
   const [readerMode, setReaderMode] = useState<ReaderMode>("reading");
+  const readerModeRef = useRef<ReaderMode>("reading");
+  const [soloLibraryOpen, setSoloLibraryOpen] = useState(false);
+  useEffect(() => { setSoloLibraryOpen(false); }, [authUser?.uid]);
 
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("normal");
 
@@ -1806,6 +1812,7 @@ export default function Home() {
             groupId: createdGroup.id,
             workId: activeWork.workId,
             isReading: true,
+            readerMode: readerModeRef.current,
             paragraphIndex: currentParagraphIndex,
             joinedAt,
             updatedAt: Date.now(),
@@ -1952,6 +1959,7 @@ export default function Home() {
             groupId: group.id,
             workId: activeWork.workId,
             isReading: true,
+            readerMode: readerModeRef.current,
             paragraphIndex: currentParagraphIndex,
             joinedAt,
             updatedAt: Date.now(),
@@ -2223,6 +2231,8 @@ export default function Home() {
       );
 
       setCurrentGroup(null);
+      setSoloLibraryOpen(false);
+      setMobilePanel(null);
       setGroupName("");
       setGroupCode("");
       setGroupError("");
@@ -2447,12 +2457,19 @@ void saveReadingEvent("layout_change").catch((error) => {
       throw new Error("ログインしてください");
     }
 
+    const authorizeReceivedWork = async () => {
+      const saved = await getSavedSharedWork(db, authUser.uid, workId);
+      if (saved) return saved.ownerId;
+      if (!currentGroup) throw new Error("この共有作品を退出前にマイライブラリへ保存してください。");
+      const shared = await prepareSharedTextWork(db, authUser.uid, currentGroup.id, workId);
+      return shared.ownerId;
+    };
     let workSnap;
     try {
       workSnap = await getDoc(doc(db, "works", workId));
     } catch (error) {
-      if (!currentGroup || (error as { code?: string }).code !== "permission-denied") throw error;
-      await prepareSharedTextWork(db, authUser.uid, currentGroup.id, workId);
+      if ((error as { code?: string }).code !== "permission-denied") throw error;
+      await authorizeReceivedWork();
       workSnap = await getDocFromServer(doc(db, "works", workId));
     }
 
@@ -2468,12 +2485,12 @@ void saveReadingEvent("layout_change").catch((error) => {
     }
 
     if (data.ownerId !== authUser.uid) {
-      if (!currentGroup) throw new Error("このTXT作品を開く権限がありません");
-      await prepareSharedTextWork(db, authUser.uid, currentGroup.id, workId);
+      const permittedOwner = await authorizeReceivedWork();
       // 共有作品はキャッシュだけで開かず、退出・削除後のサーバー権限を確認する。
       const verifiedWork = await getDocFromServer(doc(db, "works", workId));
       if (!verifiedWork.exists()) throw new Error("共有作品が削除されています");
       data = verifiedWork.data() as Partial<StoredTextWork>;
+      if (data.ownerId !== permittedOwner) throw new Error("保存・共有情報と作品が一致しません。");
     }
     if (data.workId !== workId || data.type !== "text" || typeof data.rawText !== "string") {
       throw new Error("TXT作品のデータが正しくありません");
@@ -4125,13 +4142,14 @@ if (readingSessionHiddenAtRef.current !== null) {
         userId: authUser.uid,
         workId: currentWork.workId,
         isReading: true,
+        readerMode: readerModeRef.current,
         paragraphIndex: currentParagraphIndexRef.current,
         joinedAt,
         updatedAt: Date.now(),
       },
       { merge: true },
     );
-  }, [participantId, joinedAt, authUser?.uid, currentWork.workId]);
+  }, [participantId, joinedAt, authUser?.uid, currentWork.workId, readerMode]);
 
   useEffect(() => {
     usernameRef.current = username;
@@ -4531,6 +4549,7 @@ useEffect(() => {
               groupId: currentGroup?.id ?? "",
               workId: activeWork.workId,
               isReading: true,
+              readerMode: readerModeRef.current,
               paragraphIndex: currentParagraphIndexRef.current,
               joinedAt: joinedAt || Date.now(),
               updatedAt: Date.now(),
@@ -4701,6 +4720,7 @@ useEffect(() => {
         groupId: currentGroup?.id ?? "",
         workId: activeWork.workId,
         isReading: true,
+        readerMode: readerModeRef.current,
         paragraphIndex: nextParagraphIndex,
         joinedAt,
         updatedAt: Date.now(),
@@ -4730,6 +4750,7 @@ useEffect(() => {
             groupId: currentGroup?.id ?? "",
             workId: activeWork.workId,
             isReading: true,
+            readerMode: readerModeRef.current,
             paragraphIndex: nextParagraphIndex,
             joinedAt: joinedAt || Date.now(),
             updatedAt: Date.now(),
@@ -4745,6 +4766,7 @@ useEffect(() => {
               groupId: currentGroup?.id ?? participant.groupId,
               workId: activeWork.workId,
               isReading: true,
+              readerMode: readerModeRef.current,
               paragraphIndex: nextParagraphIndex,
               updatedAt: Date.now(),
             }
@@ -5192,9 +5214,12 @@ if (readingSessionIdRef.current) {
   };
 
     const changeReaderMode = (mode: ReaderMode) => {
+    if (mode === "shared" && !currentGroup) return;
     if (mode === readerMode) return;
 
+    readerModeRef.current = mode;
     setReaderMode(mode);
+    updateLocalParticipant(currentParagraphIndexRef.current);
 
     if (!readingSessionIdRef.current) return;
 
@@ -5601,7 +5626,23 @@ if (readingSessionIdRef.current) {
     );
   }
 
-  if (!currentGroup) {
+  const openSavedLibraryWork = async (work: SavedSharedWork) => {
+    saveReadingProgress();
+    if (!currentGroup) {
+      readerModeRef.current = "reading";
+      setReaderMode("reading");
+    }
+    await handleSelectRegisteredWork(`text:${work.workId}`, work);
+    setSoloLibraryOpen(!currentGroup);
+    setMobilePanel(null);
+  };
+  const returnToGroupSelection = () => {
+    saveReadingProgress();
+    setSoloLibraryOpen(false);
+    setMobilePanel(null);
+  };
+
+  if (!currentGroup && !soloLibraryOpen) {
     return (
       <main className="reta-workspace flex min-h-screen items-center justify-center bg-[#faf7f3] px-4 py-8">
         <div className="w-full max-w-2xl rounded-[2rem] border border-[#eee3df] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
@@ -5636,6 +5677,7 @@ if (readingSessionIdRef.current) {
 
           <div className="mt-4 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
 
+          <SavedSharedWorksPanel key={authUser.uid} uid={authUser.uid} onOpen={openSavedLibraryWork} />
           <div className="mt-8 grid gap-6 md:grid-cols-2">
             <section className="rounded-3xl border border-[#eee3df] bg-[#fff8f7] p-5">
               <p className="text-xs font-bold tracking-[0.18em] text-[#a6445a]">
@@ -5727,7 +5769,9 @@ if (readingSessionIdRef.current) {
     >
       <div className="mx-auto max-w-7xl">
         <div className="mb-3 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
-        <GroupWorkSharingPanel
+        {!currentGroup && <button type="button" onClick={returnToGroupSelection} className="mb-3 rounded-xl border border-[#eed5d8] bg-white px-4 py-2 text-sm text-[#a6445a]">グループ選択へ戻る</button>}
+        <SavedSharedWorksPanel key={authUser.uid} uid={authUser.uid} onOpen={openSavedLibraryWork} />
+        {currentGroup && <GroupWorkSharingPanel
           key={`${authUser.uid}:${currentGroup.id}`}
           uid={authUser.uid} username={username} groupId={currentGroup.id}
           hasSelectedWork={hasSelectedWork}
@@ -5747,10 +5791,12 @@ if (readingSessionIdRef.current) {
           onMembershipLost={() => {
             window.localStorage.removeItem(`retaCurrentGroup_${authUser.uid}`);
             setCurrentGroup(null);
+            setSoloLibraryOpen(false);
+            setMobilePanel(null);
             setParticipants([]);
             setReactions([]);
           }}
-        />
+        />}
         <header className="reta-reader-header mb-3 rounded-2xl border border-[#eee3df] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(30,41,59,0.06)] lg:hidden">
           <div className="flex items-start justify-between gap-3">
             <img
@@ -5794,10 +5840,10 @@ if (readingSessionIdRef.current) {
               👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}
             </span>
             <span className="rounded-full bg-[#fcf0f1] px-2.5 py-1.5 text-[#a6445a]">
-              {currentGroup.name}
+              {currentGroup?.name ?? "ひとりで読む"}
             </span>
             <span className="rounded-full border border-[#eed5d8] bg-white px-2.5 py-1.5 text-[#a6445a]">
-              {currentGroup.code}
+              {currentGroup?.code ?? "—"}
             </span>
           </div>
         </header>
@@ -5833,9 +5879,9 @@ if (readingSessionIdRef.current) {
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 font-semibold leading-relaxed text-[#a6445a]">
                 <span>👥 {admittedParticipants.length}/{MAX_PARTICIPANTS}人参加</span>
                 <span aria-hidden="true" className="text-[#d5b8bd]">·</span>
-                <span className="break-words">グループ {currentGroup.name}</span>
+                <span className="break-words">グループ {currentGroup?.name ?? "ひとりで読む"}</span>
                 <span aria-hidden="true" className="text-[#d5b8bd]">·</span>
-                <span className="break-all">参加コード {currentGroup.code}</span>
+                <span className="break-all">参加コード {currentGroup?.code ?? "—"}</span>
               </div>
               <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-[#eee3df] pt-2">
                 <span className="min-w-0 break-words text-gray-500">
@@ -5844,11 +5890,11 @@ if (readingSessionIdRef.current) {
                 <div className="flex shrink-0 items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => void handleLeaveGroup()}
-                    aria-label="グループを退会"
+                    onClick={() => currentGroup ? void handleLeaveGroup() : returnToGroupSelection()}
+                    aria-label={currentGroup ? "グループを退会" : "グループ選択へ戻る"}
                     className="rounded-md px-1 py-2 font-medium text-[#a6445a] transition hover:bg-[#fff3f5]"
                   >
-                    退会
+                    {currentGroup ? "退会" : "グループ選択"}
                   </button>
                   <button
                     type="button"
@@ -6359,6 +6405,7 @@ if (readingSessionIdRef.current) {
                 {visibleParticipants
                   .filter(
                     (participant) =>
+                      participant.readerMode !== "reading" &&
                       participant.id !== participantId &&
                       participant.name !== (username || "asuma"),
                   )
@@ -6388,7 +6435,7 @@ if (readingSessionIdRef.current) {
                     );
                   })}
 
-                {participantId && readingUnits.length > 0 && (
+                {readerMode === "shared" && participantId && readingUnits.length > 0 && (
                   <div
                     className="reta-map-participant reta-map-self absolute flex flex-col items-center"
                     style={{
@@ -6475,6 +6522,7 @@ if (readingSessionIdRef.current) {
                 </button>
                 <button
                   type="button"
+                  disabled={!currentGroup}
                   onClick={() => changeReaderMode("shared")}
                   className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "shared" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
@@ -6931,7 +6979,8 @@ if (readingSessionIdRef.current) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => changeReaderMode("shared")}
+                      disabled={!currentGroup}
+                  onClick={() => changeReaderMode("shared")}
                       className={`rounded-lg px-3 py-3 text-sm font-bold ${
                         readerMode === "shared"
                           ? "bg-white text-gray-950 shadow-sm"
@@ -7084,7 +7133,8 @@ if (readingSessionIdRef.current) {
                     </p>
                     <button
                       type="button"
-                      onClick={() => changeReaderMode("shared")}
+                      disabled={!currentGroup}
+                  onClick={() => changeReaderMode("shared")}
                       className="mt-4 rounded-xl bg-[#f3cf7a] px-5 py-3 text-sm font-black text-gray-800"
                     >
                       一緒に読む
@@ -7170,10 +7220,10 @@ if (readingSessionIdRef.current) {
                     GROUP
                   </p>
                   <p className="mt-1 font-black text-gray-900">
-                    {currentGroup.name}
+                    {currentGroup?.name ?? "ひとりで読む"}
                   </p>
                   <p className="mt-1 text-sm font-bold text-gray-500">
-                    参加コード：{currentGroup.code}
+                    参加コード：{currentGroup?.code ?? "—"}
                   </p>
                   <p className="mt-1 text-sm text-gray-500">
                     {username || "利用者"}でログイン中
@@ -7330,10 +7380,10 @@ if (readingSessionIdRef.current) {
                 <div className="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4">
                   <button
                     type="button"
-                    onClick={() => void handleLeaveGroup()}
+                    onClick={() => currentGroup ? void handleLeaveGroup() : returnToGroupSelection()}
                     className="rounded-xl border border-[#eed5d8] bg-white px-3 py-3 text-sm font-bold text-[#a6445a]"
                   >
-                    グループを退会
+                    {currentGroup ? "グループを退会" : "グループ選択"}
                   </button>
 
                   <button
@@ -7350,7 +7400,7 @@ if (readingSessionIdRef.current) {
         </div>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[#e7dfd3] bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.4rem)] pt-2 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
+      <nav className="reta-mobile-nav fixed inset-x-0 bottom-0 z-50 border-t border-[#e7dfd3] bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.4rem)] pt-2 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
         <div className="mx-auto grid max-w-xl grid-cols-4 gap-1">
           <button
             type="button"
