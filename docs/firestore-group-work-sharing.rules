@@ -1,0 +1,186 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function enabled() {
+      return exists(/databases/$(database)/documents/friendsAccess/config)
+        && get(/databases/$(database)/documents/friendsAccess/config).data.enabled == true;
+    }
+    function validFriendship(data, pairId) {
+      return data.keys().hasAll(['memberIds', 'fromUid', 'toUid', 'fromName', 'toName', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['memberIds', 'fromUid', 'toUid', 'fromName', 'toName', 'status', 'createdAt', 'updatedAt'])
+        && data.fromUid is string && data.toUid is string
+        && data.fromUid != data.toUid
+        && data.memberIds is list && data.memberIds.size() == 2
+        && data.memberIds.hasAll([data.fromUid, data.toUid])
+        && pairId == data.memberIds[0] + '__' + data.memberIds[1]
+        && data.fromName is string && data.toName is string
+        && data.createdAt is int && data.updatedAt is int
+        && data.status in ['pending', 'accepted'];
+    }
+    match /friendsAccess/{id} {
+      allow read: if signedIn();
+      // 有効化は管理者がConsoleで行う。クライアントからは変更不可。
+      allow write: if false;
+    }
+    match /friendships/{pairId} {
+      // 申請前の重複確認では、まだ存在しない文書のgetが必要。
+      allow get: if signedIn() && enabled()
+        && (!exists(/databases/$(database)/documents/friendships/$(pairId))
+          || request.auth.uid in resource.data.memberIds);
+      allow list: if signedIn() && enabled() && request.auth.uid in resource.data.memberIds;
+      allow create: if signedIn() && enabled()
+        && validFriendship(request.resource.data, pairId)
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && get(/databases/$(database)/documents/usernames/$(request.resource.data.fromName)).data.uid == request.auth.uid
+        && get(/databases/$(database)/documents/usernames/$(request.resource.data.toName)).data.uid == request.resource.data.toUid;
+      allow update: if signedIn() && enabled()
+        && request.auth.uid == resource.data.toUid
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'accepted'
+        && validFriendship(request.resource.data, pairId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if signedIn() && enabled() && request.auth.uid in resource.data.memberIds;
+    }
+    // 検索用UIDを他人が書き換えられないようにする。既存登録・ログインを維持。
+    match /usernames/{name} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.username == name;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.username == name;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+    function sharingEnabled() {
+      return exists(/databases/$(database)/documents/groupSharingAccess/config)
+        && get(/databases/$(database)/documents/groupSharingAccess/config).data.enabled == true;
+    }
+    function groupMember(groupId) {
+      return signedIn() && groupId is string
+        && exists(/databases/$(database)/documents/groups/$(groupId))
+        && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds;
+    }
+    function sharedWorkAllowed(workId) {
+      let access = /databases/$(database)/documents/sharedWorkAccess/$(request.auth.uid)/works/$(workId);
+      return sharingEnabled() && exists(access)
+        && groupMember(get(access).data.groupId)
+        && exists(/databases/$(database)/documents/groupWorkShares/$(get(access).data.groupId)/works/$(workId))
+        && get(/databases/$(database)/documents/groupWorkShares/$(get(access).data.groupId)/works/$(workId)).data.ownerId == resource.data.ownerId;
+    }
+    function publicWork(data) {
+      return data.type in ['preset', 'url'] && !('rawText' in data) && !('ownerId' in data);
+    }
+    match /groupSharingAccess/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /works/{workId} {
+      allow get: if (!exists(/databases/$(database)/documents/works/$(workId)) && signedIn())
+        || publicWork(resource.data)
+        || (signedIn() && resource.data.type == 'text'
+          && (resource.data.ownerId == request.auth.uid || sharedWorkAllowed(workId)));
+      allow list: if publicWork(resource.data)
+        || (signedIn() && resource.data.type == 'text' && resource.data.ownerId == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.workId == workId
+        && (publicWork(request.resource.data)
+          || (request.resource.data.type == 'text' && request.resource.data.ownerId == request.auth.uid
+            && request.resource.data.rawText is string));
+      allow update: if signedIn() && request.resource.data.workId == workId
+        && ((publicWork(resource.data) && publicWork(request.resource.data))
+          || (resource.data.type == 'text' && resource.data.ownerId == request.auth.uid
+            && request.resource.data.type == 'text'
+            && request.resource.data.ownerId == resource.data.ownerId
+            && request.resource.data.rawText is string));
+      allow delete: if signedIn() && (publicWork(resource.data)
+        || (resource.data.type == 'text' && resource.data.ownerId == request.auth.uid));
+    }
+    match /groupWorkShares/{groupId}/works/{workId} {
+      allow read: if sharingEnabled() && groupMember(groupId);
+      allow create: if sharingEnabled() && groupMember(groupId)
+        && request.resource.data.keys().hasAll(['workId','type','title','author','ownerId','sharedBy','sharedByName','sharedAt'])
+        && request.resource.data.keys().hasOnly(['workId','type','title','author','ownerId','sharedBy','sharedByName','sharedAt'])
+        && request.resource.data.workId == workId && request.resource.data.type == 'text'
+        && request.resource.data.ownerId == request.auth.uid && request.resource.data.sharedBy == request.auth.uid
+        && request.resource.data.sharedByName is string && request.resource.data.sharedAt is int
+        && get(/databases/$(database)/documents/works/$(workId)).data.type == 'text'
+        && get(/databases/$(database)/documents/works/$(workId)).data.ownerId == request.auth.uid
+        && request.resource.data.title == get(/databases/$(database)/documents/works/$(workId)).data.title
+        && request.resource.data.author == get(/databases/$(database)/documents/works/$(workId)).data.author;
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+    match /sharedWorkAccess/{uid}/works/{workId} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid && sharingEnabled()
+        && request.resource.data.keys().hasOnly(['groupId'])
+        && groupMember(request.resource.data.groupId)
+        && exists(/databases/$(database)/documents/groupWorkShares/$(request.resource.data.groupId)/works/$(workId));
+    }
+    // 所属をアクセス制御に使うため、他人の追加・生存中のメンバー排除・時刻の偽装を防ぐ。
+    function validGroup(data) {
+      return data.keys().hasAll(['name','code','createdBy','createdAt','memberIds','memberLastSeen'])
+        && data.memberIds is list && data.memberIds.size() <= 3
+        && data.memberIds.toSet().size() == data.memberIds.size()
+        && data.memberLastSeen is map && data.memberLastSeen.keys().hasOnly(data.memberIds);
+    }
+    function canRemoveMember(index) {
+      return resource.data.memberIds.size() <= index
+        || resource.data.memberIds[index] in request.resource.data.memberIds
+        || resource.data.memberIds[index] == request.auth.uid
+        || resource.data.memberLastSeen.get(resource.data.memberIds[index], 0) <= request.time.toMillis() - 30000;
+    }
+    function verifiedJoin(groupId) {
+      let access = /databases/$(database)/documents/groupJoinAccess/$(request.auth.uid)/groups/$(groupId);
+      return signedIn() && exists(access)
+        && exists(/databases/$(database)/documents/groupInvites/$(get(access).data.code))
+        && get(/databases/$(database)/documents/groupInvites/$(get(access).data.code)).data.groupId == groupId;
+    }
+    match /groupInvites/{code} {
+      // コードを知る人のgetのみ。索引の全件取得は禁止。
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && request.resource.data.keys().hasOnly(['groupId'])
+        && getAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.createdBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.code == code;
+      allow update: if false;
+      allow delete: if signedIn()
+        && get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.createdBy == request.auth.uid;
+    }
+    match /groupJoinAccess/{uid}/groups/{groupId} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['code'])
+        && exists(/databases/$(database)/documents/groupInvites/$(request.resource.data.code))
+        && get(/databases/$(database)/documents/groupInvites/$(request.resource.data.code)).data.groupId == groupId;
+    }
+    match /groups/{groupId} {
+      allow get: if !sharingEnabled() || groupMember(groupId) || verifiedJoin(groupId);
+      allow list: if !sharingEnabled();
+      allow create: if signedIn() && validGroup(request.resource.data)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.memberIds == [request.auth.uid]
+        && request.resource.data.memberLastSeen[request.auth.uid] is int
+        && request.resource.data.memberLastSeen[request.auth.uid] <= request.time.toMillis() + 5000;
+      allow update: if signedIn() && validGroup(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds','memberLastSeen'])
+        && (request.auth.uid in resource.data.memberIds
+          || (request.auth.uid in request.resource.data.memberIds && (!sharingEnabled() || verifiedJoin(groupId))))
+        && request.resource.data.memberIds.toSet().difference(resource.data.memberIds.toSet()).hasOnly([request.auth.uid])
+        && request.resource.data.memberLastSeen.diff(resource.data.memberLastSeen).affectedKeys()
+          .hasOnly(resource.data.memberIds.toSet().difference(request.resource.data.memberIds.toSet()).union([request.auth.uid].toSet()))
+        && (!(request.auth.uid in request.resource.data.memberIds)
+          || (request.resource.data.memberLastSeen[request.auth.uid] is int
+            && request.resource.data.memberLastSeen[request.auth.uid] <= request.time.toMillis() + 5000))
+        && canRemoveMember(0) && canRemoveMember(1) && canRemoveMember(2);
+      allow delete: if false;
+    }
+    // 専用ルールのコレクションを包括許可から必ず除外する。
+    // 全件allowを残すと専用ルールを迂回できるため、必ず置き換える。
+    match /{collectionName}/{document=**} {
+      allow read: if !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess']);
+      allow write: if signedIn() && !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess']);
+    }
+  }
+}

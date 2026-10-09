@@ -1,6 +1,8 @@
 "use client";
 
 import FriendsPanel from "./friends-panel";
+import GroupWorkSharingPanel from "./group-work-sharing-panel";
+import { prepareSharedTextWork } from "./group-work-sharing";
 import { dictionary } from "./dictionary";
 import { stories, type StoryKey } from "./stories";
 import {
@@ -18,6 +20,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   onSnapshot,
   query,
@@ -1738,15 +1741,14 @@ export default function Home() {
       for (let attempt = 0; attempt < 10; attempt += 1) {
         const code = createGroupCode();
 
-        const groupQuery = query(
-          collection(db, "groups"),
-          where("code", "==", code),
-        );
-
-        const groupSnapshot = await getDocs(groupQuery);
-
-        if (!groupSnapshot.empty) {
-          continue;
+        const sharingConfig = await getDocFromServer(doc(db, "groupSharingAccess", "config"));
+        const secureGroups = sharingConfig.data()?.enabled === true;
+        if (secureGroups) {
+          const invitation = await getDocFromServer(doc(db, "groupInvites", code));
+          if (invitation.exists()) continue;
+        } else {
+          const groupSnapshot = await getDocs(query(collection(db, "groups"), where("code", "==", code)));
+          if (!groupSnapshot.empty) continue;
         }
 
         const groupRef = doc(collection(db, "groups"));
@@ -1762,14 +1764,25 @@ export default function Home() {
           },
         };
 
-        await setDoc(groupRef, {
+        const groupData = {
           name: group.name,
           code: group.code,
           createdBy: group.createdBy,
           createdAt: group.createdAt,
           memberIds: group.memberIds,
           memberLastSeen: group.memberLastSeen,
-        });
+        };
+        if (secureGroups) {
+          const invitationRef = doc(db, "groupInvites", code);
+          await runTransaction(db, async transaction => {
+            const invitation = await transaction.get(invitationRef);
+            if (invitation.exists()) throw new Error("参加コードが重複しました。もう一度お試しください。");
+            transaction.set(groupRef, groupData);
+            transaction.set(invitationRef, { groupId: groupRef.id });
+          });
+        } else {
+          await setDoc(groupRef, groupData);
+        }
 
         createdGroup = group;
         break;
@@ -1830,20 +1843,26 @@ export default function Home() {
     setGroupError("");
 
     try {
-      const groupQuery = query(
-        collection(db, "groups"),
-        where("code", "==", normalizedCode),
-      );
-
-      const groupSnapshot = await getDocs(groupQuery);
-
-      if (groupSnapshot.empty) {
-        setGroupError("この参加コードのグループは見つかりません");
-        return;
+      const sharingConfig = await getDocFromServer(doc(db, "groupSharingAccess", "config"));
+      const secureGroups = sharingConfig.data()?.enabled === true;
+      let groupId: string;
+      if (secureGroups) {
+        const invitation = await getDocFromServer(doc(db, "groupInvites", normalizedCode));
+        if (!invitation.exists() || typeof invitation.data().groupId !== "string") {
+          setGroupError("この参加コードのグループは見つかりません");
+          return;
+        }
+        groupId = invitation.data().groupId;
+        await setDoc(doc(db, "groupJoinAccess", authUser.uid, "groups", groupId), { code: normalizedCode });
+      } else {
+        const groupSnapshot = await getDocs(query(collection(db, "groups"), where("code", "==", normalizedCode)));
+        if (groupSnapshot.empty) {
+          setGroupError("この参加コードのグループは見つかりません");
+          return;
+        }
+        groupId = groupSnapshot.docs[0].id;
       }
-
-      const groupDoc = groupSnapshot.docs[0];
-      const groupRef = doc(db, "groups", groupDoc.id);
+      const groupRef = doc(db, "groups", groupId);
 
       const joinResult = await runTransaction(db, async (transaction) => {
         const freshGroupSnap = await transaction.get(groupRef);
@@ -2428,21 +2447,36 @@ void saveReadingEvent("layout_change").catch((error) => {
       throw new Error("ログインしてください");
     }
 
-    const workSnap = await getDoc(doc(db, "works", workId));
+    let workSnap;
+    try {
+      workSnap = await getDoc(doc(db, "works", workId));
+    } catch (error) {
+      if (!currentGroup || (error as { code?: string }).code !== "permission-denied") throw error;
+      await prepareSharedTextWork(db, authUser.uid, currentGroup.id, workId);
+      workSnap = await getDocFromServer(doc(db, "works", workId));
+    }
 
     if (!workSnap.exists()) {
       throw new Error("TXT作品が見つかりませんでした");
     }
 
     if (isTextWorkSaveBlocked(workId)) return;
-    const data = workSnap.data() as Partial<StoredTextWork>;
+    let data = workSnap.data() as Partial<StoredTextWork>;
 
-    if (data.type !== "text" || typeof data.rawText !== "string") {
+    if (data.workId !== workId || data.type !== "text" || typeof data.rawText !== "string") {
       throw new Error("TXT作品のデータが正しくありません");
     }
 
-    if (data.ownerId && data.ownerId !== authUser.uid) {
-      throw new Error("このTXT作品を開く権限がありません");
+    if (data.ownerId !== authUser.uid) {
+      if (!currentGroup) throw new Error("このTXT作品を開く権限がありません");
+      await prepareSharedTextWork(db, authUser.uid, currentGroup.id, workId);
+      // 共有作品はキャッシュだけで開かず、退出・削除後のサーバー権限を確認する。
+      const verifiedWork = await getDocFromServer(doc(db, "works", workId));
+      if (!verifiedWork.exists()) throw new Error("共有作品が削除されています");
+      data = verifiedWork.data() as Partial<StoredTextWork>;
+    }
+    if (data.workId !== workId || data.type !== "text" || typeof data.rawText !== "string") {
+      throw new Error("TXT作品のデータが正しくありません");
     }
 
     const title =
@@ -3047,7 +3081,7 @@ void saveReadingEvent("layout_change").catch((error) => {
     }
   };
 
-  const handleSelectRegisteredWork = async (value: string) => {
+  const handleSelectRegisteredWork = async (value: string, sharedWork?: RegisteredTextWork) => {
     if (!value) return;
 
     if (value.startsWith("preset:")) {
@@ -3061,10 +3095,11 @@ void saveReadingEvent("layout_change").catch((error) => {
 
       const work = registeredTextWorks.find(
         (registeredWork) => registeredWork.workId === workId,
-      );
+      ) ?? (sharedWork?.workId === workId ? sharedWork : undefined);
 
       if (!work) return;
 
+      setLoadMode("text");
       setHasSelectedWork(true);
       hasSelectedWorkRef.current = true;
       setIsAutoScroll(false);
@@ -3074,6 +3109,7 @@ void saveReadingEvent("layout_change").catch((error) => {
       setWikiMeaning("");
       setTextUploadError("");
       isRestoringProgressRef.current = true;
+      isInitialProgressResolvedRef.current = false;
 
       try {
         const savedProgress =
@@ -3106,7 +3142,10 @@ void saveReadingEvent("layout_change").catch((error) => {
             : "TXT作品の読み込みに失敗しました",
         );
 
+        pendingResumeProgressRef.current = null;
+        pendingFreshStartWorkIdRef.current = null;
         isRestoringProgressRef.current = false;
+        if (sharedWork) throw error;
       }
 
       return;
@@ -5688,6 +5727,30 @@ if (readingSessionIdRef.current) {
     >
       <div className="mx-auto max-w-7xl">
         <div className="mb-3 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
+        <GroupWorkSharingPanel
+          key={`${authUser.uid}:${currentGroup.id}`}
+          uid={authUser.uid} username={username} groupId={currentGroup.id}
+          hasSelectedWork={hasSelectedWork}
+          ownedWorkId={hasSelectedWork && currentWork.type === "text" ? ownedTextWorkId : null}
+          onOpen={async work => {
+            saveReadingProgress();
+            await handleSelectRegisteredWork(`text:${work.workId}`, work);
+            setMobilePanel(null);
+          }}
+          onGroupMembersChanged={memberIds => {
+            setCurrentGroup(group => {
+              if (!group || group.id !== currentGroup.id ||
+                (group.memberIds.length === memberIds.length && group.memberIds.every((id, index) => id === memberIds[index]))) return group;
+              return { ...group, memberIds };
+            });
+          }}
+          onMembershipLost={() => {
+            window.localStorage.removeItem(`retaCurrentGroup_${authUser.uid}`);
+            setCurrentGroup(null);
+            setParticipants([]);
+            setReactions([]);
+          }}
+        />
         <header className="reta-reader-header mb-3 rounded-2xl border border-[#eee3df] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(30,41,59,0.06)] lg:hidden">
           <div className="flex items-start justify-between gap-3">
             <img
