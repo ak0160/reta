@@ -205,17 +205,16 @@ export default function ExperimentLogsPage() {
     void loadSessions();
   }, []);
 
-  const sessionsByUser = sessions.reduce<Record<string, ReadingSession[]>>(
-    (groups, session) => {
-      const username = session.username || "名前なし";
-      if (!groups[username]) {
-        groups[username] = [];
-      }
-      groups[username].push(session);
-      return groups;
-    },
-    {},
-  );
+  // 同じ表示名でも、UIDが違うアカウントのログは混ぜない。
+  const sessionsByUser = new Map<string, ReadingSession[]>();
+  for (const session of sessions) {
+    const accountKey = session.userId
+      ? `uid:${session.userId}`
+      : `legacy:${session.username || "名前なし"}`;
+    const accountSessions = sessionsByUser.get(accountKey) ?? [];
+    accountSessions.push(session);
+    sessionsByUser.set(accountKey, accountSessions);
+  }
 
   const selectedSession =
     sessions.find((session) => session.id === selectedSessionId) ?? null;
@@ -380,23 +379,29 @@ export default function ExperimentLogsPage() {
               </div>
 
               <div className="grid gap-8">
-                {Object.entries(sessionsByUser).map(
-                  ([username, userSessions]) => (
-                    <section key={username}>
-                      <div className="mb-3 flex items-center gap-3">
+                {Array.from(sessionsByUser.entries()).map(
+                  ([accountKey, userSessions]) => (
+                    <details key={accountKey} className="rounded-3xl border border-[#eee3d2] bg-white p-4 sm:p-5"
+                      onToggle={event => {
+                        if (!event.currentTarget.open && userSessions.some(session => session.id === selectedSessionId)) {
+                          // 閉じたアカウントのイベントやCSVを表示対象に残さない。
+                          eventRequestRef.current += 1;
+                          setSelectedSessionId(null);
+                          setEvents([]);
+                          setIsEventLoading(false);
+                        }
+                      }}>
+                      <summary className="flex cursor-pointer items-center gap-3 rounded-xl py-2 text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a6445a]">
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#fff7e8] text-sm font-bold text-[#9a651f]">
-                          {username.slice(0, 1)}
+                          {(userSessions[0].username || "名前なし").slice(0, 1)}
                         </div>
-                        <div>
-                          <h2 className="text-base font-bold text-gray-900">
-                            {username}
-                          </h2>
-                          <p className="text-xs text-gray-400">
-                            {userSessions.length}件のセッション
-                          </p>
-                        </div>
-                      </div>
+                        <span className="flex-1 text-base font-bold">
+                          {userSessions[0].username || "名前なし"}
+                        </span>
+                        <span aria-hidden="true" className="text-[#a6445a]">⌄</span>
+                      </summary>
 
+                      <p className="mb-3 mt-4 text-xs text-gray-500">{userSessions.length}件のセッション。作品を選ぶとイベントと進捗グラフを表示します。</p>
                       <div className="grid gap-4">
                         {userSessions.map((session) => (
                   <article
@@ -637,7 +642,7 @@ export default function ExperimentLogsPage() {
                   </article>
                         ))}
                       </div>
-                    </section>
+                    </details>
                   ),
                 )}
               </div>
