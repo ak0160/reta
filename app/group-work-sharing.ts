@@ -1,4 +1,4 @@
-import { doc, getDocFromServer, runTransaction, setDoc, type Firestore } from "firebase/firestore";
+import { collection, doc, getDocFromServer, runTransaction, setDoc, waitForPendingWrites, type Firestore } from "firebase/firestore";
 
 export type SharedTextWork = {
   workId: string;
@@ -67,10 +67,11 @@ export type SavedSharedWork = {
   ownerId: string;
   sourceGroupId: string;
   savedAt: number;
+  personalWorkId?: string;
 };
 
 export function parseSavedSharedWork(id: string, data: Record<string, unknown>): SavedSharedWork {
-  if (data.workId !== id || ![data.title, data.author, data.ownerId, data.sourceGroupId].every(value => typeof value === "string") || typeof data.savedAt !== "number") {
+  if (data.workId !== id || ![data.title, data.author, data.ownerId, data.sourceGroupId].every(value => typeof value === "string") || typeof data.savedAt !== "number" || (data.personalWorkId !== undefined && (typeof data.personalWorkId !== "string" || !data.personalWorkId))) {
     throw new Error("保存した作品の情報が正しくありません。");
   }
   return data as unknown as SavedSharedWork;
@@ -81,20 +82,40 @@ export async function getSavedSharedWork(db: Firestore, uid: string, workId: str
   return snapshot.exists() ? parseSavedSharedWork(workId, snapshot.data()) : null;
 }
 
-// 明示的な保存だけが退出後の閲覧権限になる。本文とworkIdは複製しない。
+// 明示的な保存で受信者所有の独立した本文を作成する。共有中の元workIdは変えない。
 export async function saveSharedTextWork(db: Firestore, uid: string, groupId: string, workId: string) {
-  const shared = await prepareSharedTextWork(db, uid, groupId, workId);
+  const previous = await getSavedSharedWork(db, uid, workId);
+  if (!previous) await prepareSharedTextWork(db, uid, groupId, workId);
+  await waitForPendingWrites(db);
+  const personalWorkId = `text_${doc(collection(db, "works")).id}`;
   return runTransaction(db, async transaction => {
     const reference = doc(db, "savedSharedWorks", uid, "works", workId);
     const existing = await transaction.get(reference);
-    if (existing.exists()) {
-      const saved = parseSavedSharedWork(workId, existing.data());
-      if (saved.ownerId !== shared.ownerId) throw new Error("保存情報と作品が一致しません。");
-      return false;
+    const saved = existing.exists() ? parseSavedSharedWork(workId, existing.data()) : null;
+    if (saved?.personalWorkId) return false;
+    const source = await transaction.get(doc(db, "works", workId));
+    const progress = await transaction.get(doc(db, "readingProgress", `${uid}_${workId}`));
+    const data = source.data();
+    if (!source.exists() || data?.type !== "text" || data?.workId !== workId || typeof data.rawText !== "string" || typeof data.title !== "string" || typeof data.author !== "string" || typeof data.ownerId !== "string" || (saved && saved.ownerId !== data.ownerId)) {
+      throw new Error("元の共有作品が削除されているか、作品情報が一致しません。");
     }
-    transaction.set(reference, {
-      workId, title: shared.title, author: shared.author, ownerId: shared.ownerId,
-      sourceGroupId: groupId, savedAt: Date.now(),
+    if (data.ownerId === uid) throw new Error("自分の作品はすでにライブラリにあります。");
+    const now = Date.now();
+    transaction.set(doc(db, "works", personalWorkId), {
+      workId: personalWorkId, type: "text", title: data.title, author: data.author,
+      rawText: data.rawText, sourceUrl: "", ownerId: uid, sourceWorkId: workId, updatedAt: now,
+    });
+    transaction.set(doc(db, "readingProgress", `${uid}_${personalWorkId}`), {
+      ...(progress.exists() ? progress.data() : {
+        username: "", layoutMode: "normal", currentParagraphIndex: 0, readingUnitsLength: 0,
+        percent: 0, scrollLeft: 0, scrollTop: 0, bookmarks: [null, null, null, null],
+      }),
+      userId: uid, workId: personalWorkId, workType: "text", title: data.title, author: data.author,
+      sourceUrl: "", storyKey: "", updatedAt: now,
+    });
+    transaction.set(reference, saved ? { ...saved, personalWorkId } : {
+      workId, title: data.title, author: data.author, ownerId: data.ownerId,
+      sourceGroupId: groupId, savedAt: now, personalWorkId,
     });
     return true;
   });
