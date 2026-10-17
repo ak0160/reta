@@ -1,11 +1,13 @@
 "use client";
 
+import ReadingMapReactions from "./reading-map-reactions";
 import AutoScrollControls from "./auto-scroll-controls";
-import { DEFAULT_AUTO_SCROLL_SPEED, clampAutoScrollSpeed, autoScrollPixelsPerSecond } from "./auto-scroll-speed";
+import { autoScrollPixelsPerSecond } from "./auto-scroll-speed";
+import { useAutoScrollPreferences } from "./use-auto-scroll-preferences";
+import { participantColors } from "./participant-colors";
 import FriendsPanel from "./friends-panel";
 import GroupWorkSharingPanel from "./group-work-sharing-panel";
-import SavedSharedWorksPanel from "./saved-shared-works-panel";
-import { getSavedSharedWork, prepareSharedTextWork, type SavedSharedWork } from "./group-work-sharing";
+import { getSavedSharedWork, prepareSharedTextWork, inspectTextWorkRemoval, removeTextWorkFromLibrary } from "./group-work-sharing";
 import { dictionary } from "./dictionary";
 import { stories, type StoryKey } from "./stories";
 import {
@@ -1559,22 +1561,7 @@ export default function Home() {
   const [reactionComment, setReactionComment] = useState("");
 
   const [isAutoScroll, setIsAutoScroll] = useState(false);
-  const [autoSpeed, setAutoSpeed] = useState(DEFAULT_AUTO_SCROLL_SPEED);
-  useEffect(() => {
-    if (!authUser) return;
-    try {
-      const saved = localStorage.getItem(`retaAutoScrollSpeed_v1_${authUser.uid}`);
-      setAutoSpeed(saved === null ? DEFAULT_AUTO_SCROLL_SPEED : clampAutoScrollSpeed(Number(saved)));
-    } catch { setAutoSpeed(DEFAULT_AUTO_SCROLL_SPEED); }
-  }, [authUser?.uid]);
-  const changeAutoSpeed = (value: number) => {
-    const speed = clampAutoScrollSpeed(value);
-    setAutoSpeed(speed);
-    if (authUser) {
-      try { localStorage.setItem(`retaAutoScrollSpeed_v1_${authUser.uid}`, String(speed)); }
-      catch { /* 保存できない環境でも速度変更は利用できる。 */ }
-    }
-  };
+  const { speed: autoSpeed, presets: autoPresets, syncMessage: autoSpeedSyncMessage, changeSpeed: changeAutoSpeed, changePresets: changeAutoPresets } = useAutoScrollPreferences(authUser?.uid);
   const [readingProgressNotice, setReadingProgressNotice] = useState("");
   const [returnIndex, setReturnIndex] = useState<number | null>(null);
 
@@ -1670,6 +1657,15 @@ export default function Home() {
   const currentReadingUnit = readingUnits[currentParagraphIndex];
 
   const activeParagraphIndex = currentReadingUnit?.paragraphIndex ?? 0;
+
+  const colorsForParticipant = (id: string) => participantColors(
+    currentGroup?.memberIds ?? [], participantId || authUser?.uid || "", id,
+  );
+  const participantBadgeStyle = (id: string) => {
+    if (id === participantId) return undefined;
+    const colors = colorsForParticipant(id);
+    return { backgroundColor: colors.background, borderColor: colors.border, color: colors.text };
+  };
 
   const activeParticipants = useMemo(() => {
     const now = Date.now();
@@ -2597,14 +2593,6 @@ void saveReadingEvent("layout_change").catch((error) => {
 
     if (work.type !== "text" || !work.workId) return;
 
-    if (
-      !window.confirm(
-        `『${work.title}』の本文を完全に削除しますか？ この作品を共有している場合、元作品を読む人も開けなくなります。相手が自分用に保存したコピーは残ります。この操作は取り消せません。`,
-      )
-    ) {
-      return;
-    }
-
     deletingTextWorkIdRef.current = work.workId;
     setIsDeletingTextWork(true);
     setTextDeleteError("");
@@ -2612,38 +2600,13 @@ void saveReadingEvent("layout_change").catch((error) => {
     try {
       await waitForPendingWrites(db);
 
-      await runTransaction(db, async (transaction) => {
-        const workRef = doc(db, "works", work.workId);
-        const snapshot = await transaction.get(workRef);
-
-        if (auth.currentUser?.uid !== user.uid) {
-          throw new Error(
-            "ログイン状態が変わりました。再度ログインしてください。",
-          );
-        }
-
-        if (!snapshot.exists()) {
-          throw new Error(
-            "作品が見つかりません。削除は完了していません。",
-          );
-        }
-
-        const data = snapshot.data();
-
-        if (data.type !== "text" || data.ownerId !== user.uid) {
-          throw new Error(
-            "自分で追加したTXT作品だけ削除できます。",
-          );
-        }
-
-        transaction.delete(workRef);
-        if (typeof data.sourceWorkId === "string") {
-          transaction.delete(doc(db, "savedSharedWorks", user.uid, "works", data.sourceWorkId));
-        }
-        transaction.delete(
-          doc(db, "readingProgress", `${user.uid}_${work.workId}`),
-        );
-      });
+      const removal = await inspectTextWorkRemoval(db, user.uid, work.workId);
+      const message = removal.kind === "owned"
+        ? `『${work.title}』の本文を完全に削除しますか？ この作品を共有している場合、元作品を読む人も開けなくなります。相手が自分用に保存したコピーは残ります。この操作は取り消せません。`
+        : `『${work.title}』を自分のライブラリ・読書履歴から外しますか？ 自分の読書位置・しおりも消えます。共有元の本文や他の人の作品には影響しません。`;
+      if (!window.confirm(message)) return;
+      if (auth.currentUser?.uid !== user.uid) throw new Error("ログイン状態が変わりました。再度ログインしてください。");
+      await removeTextWorkFromLibrary(db, user.uid, work.workId, removal);
 
       deletedTextWorkIdsRef.current.add(work.workId);
 
@@ -4666,8 +4629,8 @@ useEffect(() => {
 
       const userProgresses = candidateProgresses.filter(
         (progress) =>
-          progress.workType !== "text" ||
-          existingTextWorkIds.has(progress.workId),
+          !deletedTextWorkIdsRef.current.has(progress.workId) &&
+          (progress.workType !== "text" || existingTextWorkIds.has(progress.workId)),
       );
 
       const latestByWorkId = new Map<string, UserReadingProgress>();
@@ -5581,7 +5544,7 @@ if (readingSessionIdRef.current) {
           </h1>
 
           <p className="mt-2 text-sm leading-relaxed text-gray-500">
-            利用者名とパスワードを入力してください。ログイン後、一人読み・共有読みの読書データを同じ利用者として管理します。
+            利用者名とパスワードを入力してください。
           </p>
 
           <div className="mt-6 grid gap-4">
@@ -5653,17 +5616,6 @@ if (readingSessionIdRef.current) {
     );
   }
 
-  const openSavedLibraryWork = async (work: SavedSharedWork) => {
-    saveReadingProgress();
-    if (!currentGroup) {
-      readerModeRef.current = "reading";
-      setReaderMode("reading");
-    }
-    const personal = work.personalWorkId ? { ...work, workId: work.personalWorkId } : work;
-    await handleSelectRegisteredWork(`text:${personal.workId}`, personal);
-    setSoloLibraryOpen(!currentGroup);
-    setMobilePanel(null);
-  };
   const returnToGroupSelection = () => {
     saveReadingProgress();
     setSoloLibraryOpen(false);
@@ -5705,7 +5657,6 @@ if (readingSessionIdRef.current) {
 
           <div className="mt-4 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
 
-          <SavedSharedWorksPanel key={authUser.uid} uid={authUser.uid} onOpen={openSavedLibraryWork} onDelete={work => handleDeleteTextWork({ ...work, workId: work.personalWorkId! }, true)} onBeforeSave={() => saveReadingProgress()} />
           <div className="mt-8 grid gap-6 md:grid-cols-2">
             <section className="rounded-3xl border border-[#eee3df] bg-[#fff8f7] p-5">
               <p className="text-xs font-bold tracking-[0.18em] text-[#a6445a]">
@@ -5798,7 +5749,6 @@ if (readingSessionIdRef.current) {
       <div className="mx-auto max-w-7xl">
         <div className="mb-3 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
         {!currentGroup && <button type="button" onClick={returnToGroupSelection} className="mb-3 rounded-xl border border-[#eed5d8] bg-white px-4 py-2 text-sm text-[#a6445a]">グループ選択へ戻る</button>}
-        <SavedSharedWorksPanel key={authUser.uid} uid={authUser.uid} onOpen={openSavedLibraryWork} onDelete={work => handleDeleteTextWork({ ...work, workId: work.personalWorkId! }, true)} onBeforeSave={() => saveReadingProgress()} />
         {currentGroup && <GroupWorkSharingPanel
           key={`${authUser.uid}:${currentGroup.id}`}
           uid={authUser.uid} username={username} groupId={currentGroup.id}
@@ -5806,6 +5756,9 @@ if (readingSessionIdRef.current) {
           onBeforeSave={() => saveReadingProgress()}
           ownedWorkId={hasSelectedWork && currentWork.type === "text" ? ownedTextWorkId : null}
           onOpen={async work => {
+            if (deletingTextWorkIdRef.current === work.workId) throw new Error("一覧から外す処理が終わってから、もう一度開いてください。");
+            // 自分の履歴から外しても、共有中の元作品は明示的に開き直せる。
+            deletedTextWorkIdsRef.current.delete(work.workId);
             saveReadingProgress();
             await handleSelectRegisteredWork(`text:${work.workId}`, work);
             setMobilePanel(null);
@@ -6160,15 +6113,15 @@ if (readingSessionIdRef.current) {
                   <p className="text-sm font-bold text-gray-700">
                     {layoutMode === "normal"
                       ? readerMode === "reading"
-                        ? "通常段落モード"
-                        : "共有表示モード（通常段落）"
+                        ? "標準モード"
+                        : "ReTAモード（標準）"
                       : layoutMode === "grouped"
                         ? readerMode === "reading"
                           ? "2文グループモード"
-                          : "共有表示モード（2文グループ）"
+                          : "ReTAモード（2文グループ）"
                         : readerMode === "reading"
                           ? "横書きモード"
-                          : "共有表示モード（横書き）"}
+                          : "ReTAモード（横書き）"}
                   </p>
                 </div>
 
@@ -6259,6 +6212,7 @@ if (readingSessionIdRef.current) {
                               {readersInParagraph.map((reader) => (
                                 <span
                                   key={reader.id}
+                                  style={participantBadgeStyle(reader.id)}
                                   className={`reader-follow-badge ${
                                     reader.id === participantId ? "is-me" : ""
                                   }`}
@@ -6342,6 +6296,7 @@ if (readingSessionIdRef.current) {
                                   {readersInParagraph.map((reader) => (
                                     <span
                                       key={reader.id}
+                                      style={participantBadgeStyle(reader.id)}
                                       className={`reader-follow-badge ${
                                         reader.id === participantId
                                           ? "is-me"
@@ -6398,6 +6353,7 @@ if (readingSessionIdRef.current) {
                                         {readersHere.map((reader) => (
                                           <span
                                             key={reader.id}
+                                            style={participantBadgeStyle(reader.id)}
                                             className={`reader-follow-badge ${
                                               reader.id === participantId
                                                 ? "is-me"
@@ -6423,14 +6379,19 @@ if (readingSessionIdRef.current) {
 
             <div className="reta-reading-map border-t border-gray-100 px-6 py-5">
               <div className="mb-3 flex items-center justify-between text-xs text-gray-500">
-                <span>読書マップ</span>
+                <span>ReTAの足あと</span>
 
                 <span>
                   {currentParagraphIndex + 1} / {readingUnits.length} 区切り
                 </span>
               </div>
 
-              <div className="reta-map-track relative rounded-full">
+              <ReadingMapReactions
+                key={`${authUser.uid}:${currentGroup?.id ?? ""}:${currentWork.workId}:${selectedStory}:${layoutMode}`}
+                reactions={visibleReactions}
+                currentIndex={currentParagraphIndex}
+                getPercent={index => getMapPercent(index, readingUnits.length)}
+              >
                 {visibleParticipants
                   .filter(
                     (participant) =>
@@ -6456,7 +6417,7 @@ if (readingSessionIdRef.current) {
                           participant.paragraphIndex + 1
                         }区切り目`}
                       >
-                        <div className="reta-map-dot rounded-full bg-blue-400" />
+                        <div className="reta-map-dot rounded-full" style={{ backgroundColor: colorsForParticipant(participant.id).dot }} />
                         <div className="reta-map-name max-w-14 truncate text-[0.6rem] text-gray-600">
                           {getDisplayName(participant.name)}
                         </div>
@@ -6486,31 +6447,7 @@ if (readingSessionIdRef.current) {
                   </div>
                 )}
 
-                {visibleReactions.map((reaction, index) => {
-                  if (reaction.paragraphIndex > currentParagraphIndex) {
-                    return null;
-                  }
-
-                  const percent = getMapPercent(
-                    reaction.paragraphIndex,
-                    readingUnits.length,
-                  );
-
-                  return (
-                    <div
-                      key={`${reaction.createdAt}-${index}`}
-                      className="reta-map-reaction absolute rounded-full bg-pink-400"
-                      style={{
-                        right: `${percent}%`,
-                        transform: "translateX(0)",
-                      }}
-                      title={`${reaction.emoji} ${
-                        reaction.paragraphIndex + 1
-                      }区切り目`}
-                    />
-                  );
-                })}
-              </div>
+              </ReadingMapReactions>
 
               <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-gray-500">
                 <span className="inline-flex items-center gap-2">
@@ -6518,7 +6455,7 @@ if (readingSessionIdRef.current) {
                   参加者
                 </span>
                 <span className="inline-flex items-center gap-2">
-                  <span aria-hidden="true" className="h-2 w-2 rounded-full bg-pink-400" />
+                  <span aria-hidden="true" className="text-sm leading-none text-[#ce8298]">♥</span>
                   リアクション
                 </span>
               </div>
@@ -6599,7 +6536,7 @@ if (readingSessionIdRef.current) {
                   onClick={() => changeLayoutModeKeepingPosition("grouped")}
                   className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "grouped" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
                 >
-                  2文ずつ
+                  <span className="block text-center leading-snug" aria-label="2文グループ">2文<br />グループ</span>
                 </button>
                 <button
                   type="button"
@@ -6622,7 +6559,7 @@ if (readingSessionIdRef.current) {
                   </span>
                 </summary>
                 <div className="border-t border-gray-100 px-3 pb-3 pt-3">
-                  <AutoScrollControls speed={autoSpeed} playing={isAutoScroll} onSpeedChange={changeAutoSpeed} onToggle={() => changeAutoScroll(!isAutoScroll)} />
+                  <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={changeAutoSpeed} onToggle={() => changeAutoScroll(!isAutoScroll)} />
                 </div>
               </details>
 
@@ -6821,9 +6758,6 @@ if (readingSessionIdRef.current) {
                     <span className="min-w-0 flex-1 break-words">{username || "利用者"}</span>
                     <span className="shrink-0 rounded-full bg-white/70 px-2 py-1 text-[0.65rem] font-medium text-[#a6445a]">あなた</span>
                   </div>
-                  <p className="mt-3 text-xs leading-relaxed text-gray-500">
-                    共有読みの参加者名とリアクション名には、ログイン中の利用者名を使用します。
-                  </p>
                 </div>
 
                 <div className="reta-community-card rounded-3xl border border-[#eee3df] bg-[#fffdfa] p-5">
@@ -6836,7 +6770,7 @@ if (readingSessionIdRef.current) {
                         className="reta-participant-row rounded-2xl px-3 py-3 text-sm"
                       >
                         <div className="flex min-w-0 items-center gap-2 font-bold text-gray-800">
-                          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-400" />
+                          <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorsForParticipant(participant.id).dot }} />
                           <span className="min-w-0 break-words">{participant.name}</span>
                         </div>
 
@@ -7001,7 +6935,7 @@ if (readingSessionIdRef.current) {
                   <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
                     {[
                       ["normal", "標準"],
-                      ["grouped", "2文ずつ"],
+                      ["grouped", "2文グループ"],
                       ["horizontal", "横書き"],
                     ].map(([mode, label]) => (
                       <button
@@ -7016,7 +6950,9 @@ if (readingSessionIdRef.current) {
                             : "text-gray-500"
                         }`}
                       >
-                        {label}
+                        {mode === "grouped" ? (
+                          <span className="block text-center leading-snug" aria-label="2文グループ">2文<br />グループ</span>
+                        ) : label}
                       </button>
                     ))}
                   </div>
@@ -7031,7 +6967,7 @@ if (readingSessionIdRef.current) {
                       {`${autoSpeed} / 100 · ${isAutoScroll ? "再生中" : "停止中"}`}
                     </span>
                   </div>
-                  <AutoScrollControls speed={autoSpeed} playing={isAutoScroll} onSpeedChange={changeAutoSpeed} onToggle={() => changeAutoScroll(!isAutoScroll)} />
+                  <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={changeAutoSpeed} onToggle={() => changeAutoScroll(!isAutoScroll)} />
                 </div>
 
                 <div>

@@ -13,16 +13,17 @@ const compiled = new Module(sourceFile, module);
 compiled.filename = sourceFile;
 compiled.paths = Module._nodeModulePaths(path.dirname(sourceFile));
 compiled._compile(ts.transpileModule(fs.readFileSync(sourceFile, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText, sourceFile);
-const { shareOwnedTextWork, prepareSharedTextWork, saveSharedTextWork, getSavedSharedWork } = compiled.exports;
+const { shareOwnedTextWork, prepareSharedTextWork, saveSharedTextWork, getSavedSharedWork, inspectTextWorkRemoval, removeTextWorkFromLibrary } = compiled.exports;
 const apps = [];
-function client(uid) {
-  const app = initializeApp({ projectId: project, apiKey: 'demo-only' }, uid);
+function client(uid, name = uid) {
+  const app = initializeApp({ projectId: project, apiKey: 'demo-only' }, name);
   apps.push(app);
   const db = getFirestore(app);
   connectFirestoreEmulator(db, '127.0.0.1', 8787, { mockUserToken: { sub: uid, user_id: uid } });
   return db;
 }
 function value(data) {
+  if (data === null) return { nullValue: null };
   if (typeof data === 'string') return { stringValue: data };
   if (typeof data === 'number') return { integerValue: String(data) };
   if (typeof data === 'boolean') return { booleanValue: data };
@@ -163,5 +164,64 @@ function observe(db, name) {
   await allow('C removes personal library registration',()=>deleteDoc(doc(c,'savedSharedWorks','charlie','works','text_one')));
   await deny('removed personal grant no longer permits disabled sharing read',()=>getDocFromServer(doc(c,'works','text_one')));
   await allow('owner still reads own TXT with feature disabled',()=>getDocFromServer(doc(a,'works','text_one')));
+  await allow('B exits before removing inaccessible shared history',()=>updateDoc(doc(b,'groups','group1'),{memberIds:['alice','charlie'],memberLastSeen:{alice:now,charlie:now}}));
+  const removeId='text_remove_reference';
+  await seed(`works/${removeId}`,{...work,workId:removeId});
+  await seed(`readingProgress/bob_${removeId}`,{userId:'bob',workId:removeId,currentParagraphIndex:3,bookmarks:[1,null,null,null]});
+  await seed(`readingProgress/charlie_${removeId}`,{userId:'charlie',workId:removeId,currentParagraphIndex:6});
+  await seed(`savedSharedWorks/bob/works/${removeId}`,{workId:removeId,title:work.title,author:work.author,ownerId:'alice',sourceGroupId:'group1',savedAt:now});
+  await seed(`sharedWorkAccess/bob/works/${removeId}`,{groupId:'group1'});
+  const removal=await allow('inaccessible shared work classified as reference removal',()=>inspectTextWorkRemoval(b,'bob',removeId));
+  assert.equal(removal.kind,'reference');
+  await allow('remove own shared history without reading original',()=>removeTextWorkFromLibrary(b,'bob',removeId,removal));
+  assert.equal((await getDocFromServer(doc(b,'readingProgress',`bob_${removeId}`))).exists(),false);
+  assert.equal((await getDocFromServer(doc(b,'savedSharedWorks','bob','works',removeId))).exists(),false);
+  assert.equal((await getDocFromServer(doc(b,'sharedWorkAccess','bob','works',removeId))).exists(),false);
+  checks++;console.log('PASS own history and references removed');
+  assert.equal((await getDocFromServer(doc(a,'works',removeId))).data().rawText,work.rawText);
+  assert.equal((await getDocFromServer(doc(c,'readingProgress',`charlie_${removeId}`))).data().currentParagraphIndex,6);
+  checks++;console.log('PASS original text and other user position preserved');
+  await seed(`savedSharedWorks/bob/works/${removeId}`,{workId:removeId,title:work.title,author:work.author,ownerId:'alice',sourceGroupId:'group1',savedAt:now,personalWorkId:'text_bob_personal'});
+  await seed('works/text_bob_personal',{...work,workId:'text_bob_personal',ownerId:'bob',sourceWorkId:removeId});
+  await allow('removing source history preserves independent copy registration',()=>removeTextWorkFromLibrary(b,'bob',removeId,{kind:'reference'}));
+  assert.equal((await getDocFromServer(doc(b,'savedSharedWorks','bob','works',removeId))).data().personalWorkId,'text_bob_personal');
+  const ownedRemoval=await allow('owned copy classified as full deletion',()=>inspectTextWorkRemoval(b,'bob','text_bob_personal'));
+  assert.equal(ownedRemoval.kind,'owned');
+  await allow('owner deletes personal copy and its registration',()=>removeTextWorkFromLibrary(b,'bob','text_bob_personal',ownedRemoval));
+  assert.equal((await getDocFromServer(doc(b,'works','text_bob_personal'))).exists(),false);
+  assert.equal((await getDocFromServer(doc(b,'savedSharedWorks','bob','works',removeId))).exists(),false);
+  await deny('cannot force deletion of someone else original',()=>removeTextWorkFromLibrary(b,'bob',removeId,{kind:'owned'}));
+  await seed(`readingProgress/bob_${removeId}`,{userId:'bob',workId:removeId,currentParagraphIndex:2});
+  await deny('original read is genuinely denied after exit without saved grant',()=>getDocFromServer(doc(b,'works',removeId)));
+  const inaccessibleRemoval=await allow('permission denied is safely classified for own history removal',()=>inspectTextWorkRemoval(b,'bob',removeId));
+  assert.equal(inaccessibleRemoval.kind,'reference');
+  await allow('remove own history when original read is denied',()=>removeTextWorkFromLibrary(b,'bob',removeId,inaccessibleRemoval));
+  assert.equal((await getDocFromServer(doc(b,'readingProgress',`bob_${removeId}`))).exists(),false);
+  assert.equal((await getDocFromServer(doc(a,'works',removeId))).exists(),true);
+  checks++;console.log('PASS inaccessible source stays intact after own history removal');
+  await seed('readingProgress/bob_text_missing',{userId:'bob',workId:'text_missing'});
+  const missingRemoval=await allow('missing original classified as reference removal',()=>inspectTextWorkRemoval(b,'bob','text_missing'));
+  await allow('history can be removed after original deletion',()=>removeTextWorkFromLibrary(b,'bob','text_missing',missingRemoval));
+  const preference={speed:50,presets:{slow:40,normal:50,fast:60,faster:80},updatedAt:Date.now()};
+  await allow('account stores own scroll speed and presets',()=>setDoc(doc(a,'readerPreferences','alice'),preference));
+  await deny('another account cannot read scroll settings',()=>getDocFromServer(doc(b,'readerPreferences','alice')));
+  await deny('another account cannot overwrite scroll settings',()=>setDoc(doc(b,'readerPreferences','alice'),preference));
+  await deny('speed zero rejected',()=>updateDoc(doc(a,'readerPreferences','alice'),{speed:0}));
+  await deny('preset outside 1-100 rejected',()=>updateDoc(doc(a,'readerPreferences','alice'),{presets:{...preference.presets,slow:101}}));
+  await deny('fractional preset rejected',()=>updateDoc(doc(a,'readerPreferences','alice'),{presets:{...preference.presets,normal:50.5}}));
+  await deny('unrelated settings fields rejected',()=>updateDoc(doc(a,'readerPreferences','alice'),{role:'admin'}));
+  const secondDevice=client('alice','alice-settings-second-device');
+  const settingsChanged=new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('settings sync timeout')),10000);
+    const stop=onSnapshot(doc(secondDevice,'readerPreferences','alice'),snapshot=>{
+      if(snapshot.data()?.speed===67){clearTimeout(timer);stop();resolve(snapshot.data());}
+    },error=>{clearTimeout(timer);reject(error)});
+    stops.push(()=>{clearTimeout(timer);stop()});
+  });
+  await allow('own presets can be customized',()=>updateDoc(doc(a,'readerPreferences','alice'),{speed:67,presets:{slow:42,normal:55,fast:66,faster:88},updatedAt:Date.now()}));
+  const synchronized=await allow('same account on second client receives settings update',()=>settingsChanged);
+  assert.equal(synchronized.presets.normal,55);
+  await allow('different account keeps separate defaults and custom values',()=>setDoc(doc(b,'readerPreferences','bob'),{...preference,speed:35}));
+  assert.equal((await getDocFromServer(doc(a,'readerPreferences','alice'))).data().speed,67);
   console.log(`ALL ${checks} checks passed. Only local emulator ${project} was used.`);
 })().catch(error=>{console.error(error);process.exitCode=1}).finally(async()=>{stops.forEach(stop=>stop());for(const app of apps){await terminate(getFirestore(app));await deleteApp(app)}});

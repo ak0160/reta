@@ -53,6 +53,22 @@ service cloud.firestore {
         && request.resource.data.username == name;
       allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
+    function validReaderPreferences(data) {
+      return data.keys().hasAll(['speed', 'presets', 'updatedAt'])
+        && data.keys().hasOnly(['speed', 'presets', 'updatedAt'])
+        && data.speed is int && data.speed >= 1 && data.speed <= 100
+        && data.updatedAt is int && data.presets is map
+        && data.presets.keys().hasAll(['slow', 'normal', 'fast', 'faster'])
+        && data.presets.keys().hasOnly(['slow', 'normal', 'fast', 'faster'])
+        && data.presets.slow is int && data.presets.slow >= 1 && data.presets.slow <= 100
+        && data.presets.normal is int && data.presets.normal >= 1 && data.presets.normal <= 100
+        && data.presets.fast is int && data.presets.fast >= 1 && data.presets.fast <= 100
+        && data.presets.faster is int && data.presets.faster >= 1 && data.presets.faster <= 100;
+    }
+    match /readerPreferences/{uid} {
+      allow read, delete: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid && validReaderPreferences(request.resource.data);
+    }
     function sharingEnabled() {
       return exists(/databases/$(database)/documents/groupSharingAccess/config)
         && get(/databases/$(database)/documents/groupSharingAccess/config).data.enabled == true;
@@ -211,8 +227,8 @@ service cloud.firestore {
     // 専用ルールのコレクションを包括許可から必ず除外する。
     // 全件allowを残すと専用ルールを迂回できるため、必ず置き換える。
     match /{collectionName}/{document=**} {
-      allow read: if !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess', 'savedSharedWorks']);
-      allow write: if signedIn() && !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess', 'savedSharedWorks']);
+      allow read: if !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess', 'savedSharedWorks', 'readerPreferences']);
+      allow write: if signedIn() && !(collectionName in ['friendships', 'friendsAccess', 'usernames', 'works', 'groups', 'groupWorkShares', 'sharedWorkAccess', 'groupSharingAccess', 'groupInvites', 'groupJoinAccess', 'savedSharedWorks', 'readerPreferences']);
     }
   }
 }

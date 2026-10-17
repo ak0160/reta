@@ -120,3 +120,40 @@ export async function saveSharedTextWork(db: Firestore, uid: string, groupId: st
     return true;
   });
 }
+
+export type TextWorkRemoval = { kind: "owned" | "reference" };
+
+export async function inspectTextWorkRemoval(db: Firestore, uid: string, workId: string): Promise<TextWorkRemoval> {
+  try {
+    const snapshot = await getDocFromServer(doc(db, "works", workId));
+    if (!snapshot.exists()) return { kind: "reference" };
+    const data = snapshot.data();
+    if (data.type !== "text" || data.workId !== workId) throw new Error("TXT作品の情報が一致しません。");
+    return { kind: data.ownerId === uid ? "owned" : "reference" };
+  } catch (error) {
+    // 退出後の共有本文を取得できなくても、本人の登録は削除できる。
+    if ((error as { code?: string } | null)?.code === "permission-denied") return { kind: "reference" };
+    throw error;
+  }
+}
+
+export async function removeTextWorkFromLibrary(db: Firestore, uid: string, workId: string, removal: TextWorkRemoval) {
+  return runTransaction(db, async transaction => {
+    const reference = doc(db, "works", workId);
+    const work = removal.kind === "owned" ? await transaction.get(reference) : null;
+    const data = work?.data();
+    if (work?.exists() && (data?.ownerId !== uid || data.type !== "text" || data.workId !== workId)) {
+      throw new Error("作品の所有者が変わったため削除を中止しました。");
+    }
+    const sourceWorkId = removal.kind === "owned" && typeof data?.sourceWorkId === "string" ? data.sourceWorkId : workId;
+    const savedRef = doc(db, "savedSharedWorks", uid, "works", sourceWorkId);
+    const saved = await transaction.get(savedRef);
+    // 元作品の履歴を外すだけの場合、別に保存した自分用コピーの登録は残す。
+    if (saved.exists() && (!saved.data().personalWorkId || saved.data().personalWorkId === workId)) {
+      transaction.delete(savedRef);
+    }
+    if (work?.exists()) transaction.delete(reference);
+    transaction.delete(doc(db, "readingProgress", `${uid}_${workId}`));
+    transaction.delete(doc(db, "sharedWorkAccess", uid, "works", workId));
+  });
+}
