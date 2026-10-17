@@ -1768,11 +1768,124 @@ rt {
   bottom: auto;
 }
 
-.reta-workspace .reta-map-reaction {
-  bottom: -2px;
-  width: 8px;
-  height: 8px;
-  border: 1px solid #fffdfa;
+/* Reaction hearts sit below the line, separate from participant circles. */
+.reta-workspace .reta-map-interactive {
+  position: relative;
+  display: flow-root;
+  padding-bottom: 2rem;
+}
+
+.reta-workspace .reta-map-heart {
+  position: absolute;
+  top: 8px;
+  display: inline-flex;
+  min-width: 34px;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transform: translateX(-50%);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: #fffdfa;
+  color: #c87890;
+  font-size: 18px;
+  cursor: pointer;
+  z-index: 3;
+}
+
+.reta-workspace .reta-map-heart:hover,
+.reta-workspace .reta-map-heart.is-selected {
+  border-color: #edc9d3;
+  background: #fff0f4;
+  color: #a6445a;
+}
+
+.reta-workspace .reta-map-heart-count {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.reta-workspace .reta-map-interactive.is-open { padding-bottom: 0; }
+
+.reta-workspace .reta-map-reaction-card {
+  position: relative;
+  margin-top: 2.75rem;
+  width: min(20rem, 100%);
+  max-height: min(20rem, 50dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #edc9d3;
+  border-radius: 18px;
+  background: #fffdfa;
+  box-shadow: 0 8px 24px rgb(113 69 78 / 10%);
+  padding: 14px;
+  z-index: 20;
+  color: #45363b;
+  text-align: left;
+}
+
+.reta-workspace .reta-map-reaction-card-header {
+  position: sticky;
+  top: -14px;
+  background: #fffdfa;
+  padding-block: 4px;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.reta-workspace .reta-map-reaction-card h3 {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reta-workspace .reta-map-reaction-card h3 span { color: #927b83; }
+.reta-workspace .reta-map-reaction-card-header button {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #fcf0f1;
+  color: #a6445a;
+}
+
+.reta-workspace .reta-map-reaction-card li {
+  border-top: 1px solid #f1e5e8;
+  padding: 10px 0;
+}
+
+.reta-workspace .reta-map-reaction-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.reta-workspace .reta-map-reaction-emoji { font-size: 20px; }
+.reta-workspace .reta-map-reaction-card p {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+@media (max-width: 1023px) {
+  .reta-workspace .reta-map-interactive.is-open { padding-bottom: 0; }
+  .reta-workspace .reta-map-reaction-card {
+    position: relative;
+    left: auto !important;
+    top: auto;
+    width: 100%;
+    margin-top: 2.75rem;
+    box-shadow: 0 3px 12px rgb(113 69 78 / 5%);
+  }
 }
 
 @media (max-width: 639px) {
