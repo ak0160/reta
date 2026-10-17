@@ -73,11 +73,19 @@ service cloud.firestore {
       let saved = /databases/$(database)/documents/savedSharedWorks/$(request.auth.uid)/works/$(workId);
       return exists(saved) && get(saved).data.ownerId == resource.data.ownerId;
     }
+    function validPersonalCopy(data, sourceId) {
+      let source = get(/databases/$(database)/documents/works/$(sourceId)).data;
+      let copy = getAfter(/databases/$(database)/documents/works/$(data.personalWorkId)).data;
+      return data.personalWorkId is string && data.personalWorkId != sourceId
+        && copy.ownerId == request.auth.uid && copy.workId == data.personalWorkId && copy.type == 'text'
+        && copy.sourceWorkId == sourceId && copy.rawText == source.rawText
+        && copy.title == source.title && copy.author == source.author;
+    }
     match /savedSharedWorks/{uid}/works/{workId} {
       allow read, delete: if signedIn() && request.auth.uid == uid;
       allow create: if signedIn() && request.auth.uid == uid && sharingEnabled()
         && request.resource.data.keys().hasAll(['workId', 'title', 'author', 'ownerId', 'sourceGroupId', 'savedAt'])
-        && request.resource.data.keys().hasOnly(['workId', 'title', 'author', 'ownerId', 'sourceGroupId', 'savedAt'])
+        && request.resource.data.keys().hasOnly(['workId', 'title', 'author', 'ownerId', 'sourceGroupId', 'savedAt', 'personalWorkId'])
         && request.resource.data.workId == workId && request.resource.data.savedAt is int
         && groupMember(request.resource.data.sourceGroupId)
         && exists(/databases/$(database)/documents/groupWorkShares/$(request.resource.data.sourceGroupId)/works/$(workId))
@@ -85,8 +93,13 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/works/$(workId)).data.type == 'text'
         && get(/databases/$(database)/documents/works/$(workId)).data.ownerId == request.resource.data.ownerId
         && get(/databases/$(database)/documents/works/$(workId)).data.title == request.resource.data.title
-        && get(/databases/$(database)/documents/works/$(workId)).data.author == request.resource.data.author;
-      allow update: if false;
+        && get(/databases/$(database)/documents/works/$(workId)).data.author == request.resource.data.author
+        && (!('personalWorkId' in request.resource.data) || validPersonalCopy(request.resource.data, workId));
+      // 既存の参照保存から本人所有コピーへの移行だけを許可する。
+      allow update: if signedIn() && request.auth.uid == uid
+        && !('personalWorkId' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['personalWorkId'])
+        && validPersonalCopy(request.resource.data, workId);
     }
     function publicWork(data) {
       return data.type in ['preset', 'url'] && !('rawText' in data) && !('ownerId' in data);

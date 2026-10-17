@@ -86,7 +86,7 @@ function observe(db, name) {
   await deny('outside cannot read TXT after sharing',()=>getDocFromServer(doc(d,'works','text_one')));
   await deny('shared metadata cannot be repeatedly overwritten',()=>updateDoc(doc(a,...sharingPath('text_one')),{sharedAt:Date.now()}));
   await allow('B saves independent position',()=>setDoc(doc(b,'readingProgress','bob_text_one'),{userId:'bob',workId:'text_one',currentParagraphIndex:2}));
-  await allow('C saves independent position',()=>setDoc(doc(c,'readingProgress','charlie_text_one'),{userId:'charlie',workId:'text_one',currentParagraphIndex:5}));
+  await allow('C saves independent position',()=>setDoc(doc(c,'readingProgress','charlie_text_one'),{userId:'charlie',workId:'text_one',currentParagraphIndex:5,layoutMode:'grouped',readingUnitsLength:10,bookmarks:[1,4,null,8]}));
   assert.equal((await getDocFromServer(doc(b,'readingProgress','bob_text_one'))).data().currentParagraphIndex,2);
   assert.equal((await getDocFromServer(doc(c,'readingProgress','charlie_text_one'))).data().currentParagraphIndex,5);
   checks++;console.log('PASS saved positions remain independent');
@@ -102,6 +102,15 @@ function observe(db, name) {
   assert.equal(await allow('repeated personal save is idempotent',()=>saveSharedTextWork(c,'charlie','group1','text_one')),false);
   const saved=(await getSavedSharedWork(c,'charlie','text_one'));
   assert.equal(saved.workId,work.workId);assert.equal(saved.ownerId,'alice');
+  const copiedId=saved.personalWorkId;
+  assert(copiedId && copiedId!==work.workId);
+  const personal=(await getDocFromServer(doc(c,'works',copiedId))).data();
+  assert.equal(personal.ownerId,'charlie');assert.equal(personal.rawText,work.rawText);
+  const personalProgress=(await getDocFromServer(doc(c,'readingProgress',`charlie_${copiedId}`))).data();
+  assert.equal(personalProgress.currentParagraphIndex,5);assert.equal(personalProgress.layoutMode,'grouped');
+  assert.deepEqual(personalProgress.bookmarks,[1,4,null,8]);checks++;console.log('PASS owned independent copy preserves own position and bookmarks');
+  await deny('source owner cannot delete recipient personal copy',()=>deleteDoc(doc(a,'works',copiedId)));
+  await seed('savedSharedWorks/charlie/works/text_two',{workId:'text_two',title:'別作品',author:work.author,ownerId:'alice',sourceGroupId:'group1',savedAt:now});
   const savedPayload={...saved};
   await deny('outsider cannot forge personal saved rights',()=>setDoc(doc(d,'savedSharedWorks','outsider','works','text_one'),savedPayload));
   await deny('cannot create another user personal saved rights',()=>setDoc(doc(b,'savedSharedWorks','outsider','works','text_one'),savedPayload));
@@ -110,8 +119,12 @@ function observe(db, name) {
   await deny('cannot save unshared work',()=>setDoc(doc(b,'savedSharedWorks','bob','works','unshared'),{...savedPayload,workId:'unshared'}));
   await allow('C leaves after explicit save',()=>updateDoc(doc(c,'groups','group1'),{memberIds:['alice','bob'],memberLastSeen:{alice:now,bob:now}}));
   await allow('C can read saved TXT after leaving',()=>getDocFromServer(doc(c,'works','text_one')));
-  assert.equal((await allow('personal saved library remains available after exit',()=>getDocs(collection(c,'savedSharedWorks','charlie','works')))).size,1);
-  await deny('ex-member cannot create new personal rights',()=>setDoc(doc(c,'savedSharedWorks','charlie','works','text_two'),{...savedPayload,workId:'text_two',title:'別作品'}));
+  assert.equal((await allow('personal saved library remains available after exit',()=>getDocs(collection(c,'savedSharedWorks','charlie','works')))).size,2);
+  assert.equal(await allow('legacy grant converts to owned copy after exit',()=>saveSharedTextWork(c,'charlie','group1','text_two')),true);
+  const migrated=await getSavedSharedWork(c,'charlie','text_two');
+  assert(migrated.personalWorkId && migrated.personalWorkId!=='text_two');
+  await allow('legacy converted copy readable as owner',()=>getDocFromServer(doc(c,'works',migrated.personalWorkId)));
+  await deny('ex-member cannot create new personal rights',()=>setDoc(doc(c,'savedSharedWorks','charlie','works','unshared'),{...savedPayload,workId:'unshared'}));
   await deny('saved rights do not reveal group share list after exit',()=>getDocs(collection(c,'groupWorkShares','group1','works')));
   await deny('outsider cannot read TXT with someone else saved rights',()=>getDocFromServer(doc(d,'works','text_one')));
   await seed('groups/group1',{name:'テスト',code:'TEST123',createdBy:'alice',createdAt:now,memberIds:['alice','bob','charlie'],memberLastSeen:{alice:now,bob:now,charlie:now}});
@@ -126,6 +139,10 @@ function observe(db, name) {
   await allow('rejoin self through invitation',()=>updateDoc(doc(b,'groups','group1'),{memberIds:['alice','charlie','bob'],memberLastSeen:{alice:now,charlie:now,bob:Date.now()}}));
   await allow('access returns after rejoin',()=>getDocFromServer(doc(b,'works','text_one')));
   await allow('owner deletes shared TXT',()=>deleteDoc(doc(a,'works','text_two')));
+  assert.equal((await allow('personal copy survives original deletion',()=>getDocFromServer(doc(c,'works',migrated.personalWorkId)))).data().ownerId,'charlie');
+  await allow('recipient can delete own personal copy',()=>deleteDoc(doc(c,'works',migrated.personalWorkId)));
+  await allow('recipient removes own copy registration',()=>deleteDoc(doc(c,'savedSharedWorks','charlie','works','text_two')));
+  await allow('deleting personal copy leaves original other work intact',()=>getDocFromServer(doc(a,'works','text_one')));
   await assert.rejects(()=>prepareSharedTextWork(c,'charlie','group1','text_two'),/削除/);checks++;console.log('PASS deleted TXT produces explicit error');
   await allow('public Aozora metadata save preserved',()=>setDoc(doc(b,'works','url_test'),{workId:'url_test',type:'url',title:'青空文庫',author:'著者',sourceUrl:'https://example.com',updatedAt:now}));
   await allow('public Aozora metadata readable',()=>getDocFromServer(doc(d,'works','url_test')));
@@ -141,6 +158,7 @@ function observe(db, name) {
   await seed('groupSharingAccess/config',{enabled:false});
   await deny('feature disabled blocks share reads',()=>getDocFromServer(doc(c,...sharingPath('text_one'))));
   await deny('feature disabled blocks unsaved granted TXT read',()=>getDocFromServer(doc(b,'works','text_one')));
+  await allow('personal owned copy independent of sharing switch',()=>getDocFromServer(doc(c,'works',copiedId)));
   await allow('personal saved TXT independent of sharing switch',()=>getDocFromServer(doc(c,'works','text_one')));
   await allow('C removes personal library registration',()=>deleteDoc(doc(c,'savedSharedWorks','charlie','works','text_one')));
   await deny('removed personal grant no longer permits disabled sharing read',()=>getDocFromServer(doc(c,'works','text_one')));

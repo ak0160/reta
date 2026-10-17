@@ -5,8 +5,9 @@ import { collection, doc, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
 import { parseSharedTextWork, prepareSharedTextWork, shareOwnedTextWork, saveSharedTextWork, type SharedTextWork } from "./group-work-sharing";
 
-export default function GroupWorkSharingPanel({ uid, username, groupId, ownedWorkId, hasSelectedWork, onOpen, onMembershipLost, onGroupMembersChanged }: {
+export default function GroupWorkSharingPanel({ uid, username, groupId, ownedWorkId, hasSelectedWork, onOpen, onMembershipLost, onGroupMembersChanged, onBeforeSave }: {
   uid: string; username: string; groupId: string; ownedWorkId: string | null; hasSelectedWork: boolean;
+  onBeforeSave: () => void;
   onOpen: (work: SharedTextWork) => Promise<void>;
   onMembershipLost: () => void;
   onGroupMembersChanged: (memberIds: string[]) => void;
@@ -105,8 +106,9 @@ export default function GroupWorkSharingPanel({ uid, username, groupId, ownedWor
         {work.ownerId !== uid && <button type="button" disabled={busy} onClick={async () => {
           setBusy(true); setError(""); setNotice("");
           try {
+            onBeforeSave();
             const added = await saveSharedTextWork(db, uid, groupId, work.workId);
-            if (alive.current) setNotice(added ? "マイライブラリに保存しました。グループ退出後も読めます。" : "この作品は保存済みです。");
+            if (alive.current) setNotice(added ? "自分の作品として保存しました。共有元が削除しても手元に残ります。" : "この作品は保存済みです。");
           } catch (error) { if (alive.current) setError(error instanceof Error ? error.message : "保存に失敗しました。"); }
           finally { if (alive.current) setBusy(false); }
         }} className="rounded-lg bg-[#fcf0f1] px-3 py-2 text-xs font-bold text-[#a6445a] disabled:opacity-40">マイライブラリに保存</button>}

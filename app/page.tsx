@@ -1,5 +1,7 @@
 "use client";
 
+import AutoScrollControls from "./auto-scroll-controls";
+import { DEFAULT_AUTO_SCROLL_SPEED, clampAutoScrollSpeed, autoScrollPixelsPerSecond } from "./auto-scroll-speed";
 import FriendsPanel from "./friends-panel";
 import GroupWorkSharingPanel from "./group-work-sharing-panel";
 import SavedSharedWorksPanel from "./saved-shared-works-panel";
@@ -1557,7 +1559,22 @@ export default function Home() {
   const [reactionComment, setReactionComment] = useState("");
 
   const [isAutoScroll, setIsAutoScroll] = useState(false);
-  const [autoSpeed, setAutoSpeed] = useState(17);
+  const [autoSpeed, setAutoSpeed] = useState(DEFAULT_AUTO_SCROLL_SPEED);
+  useEffect(() => {
+    if (!authUser) return;
+    try {
+      const saved = localStorage.getItem(`retaAutoScrollSpeed_v1_${authUser.uid}`);
+      setAutoSpeed(saved === null ? DEFAULT_AUTO_SCROLL_SPEED : clampAutoScrollSpeed(Number(saved)));
+    } catch { setAutoSpeed(DEFAULT_AUTO_SCROLL_SPEED); }
+  }, [authUser?.uid]);
+  const changeAutoSpeed = (value: number) => {
+    const speed = clampAutoScrollSpeed(value);
+    setAutoSpeed(speed);
+    if (authUser) {
+      try { localStorage.setItem(`retaAutoScrollSpeed_v1_${authUser.uid}`, String(speed)); }
+      catch { /* 保存できない環境でも速度変更は利用できる。 */ }
+    }
+  };
   const [readingProgressNotice, setReadingProgressNotice] = useState("");
   const [returnIndex, setReturnIndex] = useState<number | null>(null);
 
@@ -1588,10 +1605,10 @@ export default function Home() {
   // 数字を大きくすると速くなる。
   const AUTO_SCROLL_SPEED =
     layoutMode === "grouped"
-      ? autoSpeed * 1.7
+      ? autoScrollPixelsPerSecond(autoSpeed) * 1.7
       : layoutMode === "horizontal"
-        ? autoSpeed * 2.2
-        : autoSpeed;
+        ? autoScrollPixelsPerSecond(autoSpeed) * 2.2
+        : autoScrollPixelsPerSecond(autoSpeed);
 
   const paragraphRefs = useRef<(HTMLDivElement | null)[]>([]);
   const currentParagraphIndexRef = useRef(0);
@@ -2563,7 +2580,7 @@ void saveReadingEvent("layout_change").catch((error) => {
   };
 
 
-  const handleDeleteTextWork = async (targetWork?: RegisteredTextWork) => {
+  const handleDeleteTextWork = async (targetWork?: RegisteredTextWork, reportFailure = false) => {
     const user = auth.currentUser;
     if (!user || user.uid !== authUser?.uid || deletingTextWorkIdRef.current) return;
 
@@ -2582,7 +2599,7 @@ void saveReadingEvent("layout_change").catch((error) => {
 
     if (
       !window.confirm(
-        `『${work.title}』をマイライブラリから削除しますか？ この操作は取り消せません。`,
+        `『${work.title}』の本文を完全に削除しますか？ この作品を共有している場合、元作品を読む人も開けなくなります。相手が自分用に保存したコピーは残ります。この操作は取り消せません。`,
       )
     ) {
       return;
@@ -2620,6 +2637,9 @@ void saveReadingEvent("layout_change").catch((error) => {
         }
 
         transaction.delete(workRef);
+        if (typeof data.sourceWorkId === "string") {
+          transaction.delete(doc(db, "savedSharedWorks", user.uid, "works", data.sourceWorkId));
+        }
         transaction.delete(
           doc(db, "readingProgress", `${user.uid}_${work.workId}`),
         );
@@ -2712,6 +2732,7 @@ void saveReadingEvent("layout_change").catch((error) => {
           ? error.message
           : "作品の削除に失敗しました。もう一度お試しください。",
       );
+      if (reportFailure) throw error;
     } finally {
       deletingTextWorkIdRef.current = null;
       setIsDeletingTextWork(false);
@@ -4630,8 +4651,14 @@ useEffect(() => {
               existingTextWorkIds.add(workId);
             }
           } catch (error) {
-            console.error("TXT作品の存在確認に失敗", workId, error);
-            // 一時的な通信エラーでは作品を一覧から消さない。
+            // 履歴は閲覧権限の証明ではない。共有グループ退出後などの権限拒否を
+            // 「作品がない」と扱ったり、画面エラーにしたりしない。
+            // 本文を開くときのサーバー側権限確認はopenStoredTextWorkで別途行う。
+            const code = (error as { code?: string } | null)?.code;
+            if (code !== "permission-denied") {
+              console.error("TXT作品の存在確認に失敗", workId, error);
+            }
+            // 権限拒否・一時的な通信エラーのどちらでも履歴は保持する。
             existingTextWorkIds.add(workId);
           }
         }),
@@ -5632,7 +5659,8 @@ if (readingSessionIdRef.current) {
       readerModeRef.current = "reading";
       setReaderMode("reading");
     }
-    await handleSelectRegisteredWork(`text:${work.workId}`, work);
+    const personal = work.personalWorkId ? { ...work, workId: work.personalWorkId } : work;
+    await handleSelectRegisteredWork(`text:${personal.workId}`, personal);
     setSoloLibraryOpen(!currentGroup);
     setMobilePanel(null);
   };
@@ -5677,7 +5705,7 @@ if (readingSessionIdRef.current) {
 
           <div className="mt-4 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
 
-          <SavedSharedWorksPanel key={authUser.uid} uid={authUser.uid} onOpen={openSavedLibraryWork} />
+          <SavedSharedWorksPanel key={authUser.uid} uid={authUser.uid} onOpen={openSavedLibraryWork} onDelete={work => handleDeleteTextWork({ ...work, workId: work.personalWorkId! }, true)} onBeforeSave={() => saveReadingProgress()} />
           <div className="mt-8 grid gap-6 md:grid-cols-2">
             <section className="rounded-3xl border border-[#eee3df] bg-[#fff8f7] p-5">
               <p className="text-xs font-bold tracking-[0.18em] text-[#a6445a]">
@@ -5770,11 +5798,12 @@ if (readingSessionIdRef.current) {
       <div className="mx-auto max-w-7xl">
         <div className="mb-3 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
         {!currentGroup && <button type="button" onClick={returnToGroupSelection} className="mb-3 rounded-xl border border-[#eed5d8] bg-white px-4 py-2 text-sm text-[#a6445a]">グループ選択へ戻る</button>}
-        <SavedSharedWorksPanel key={authUser.uid} uid={authUser.uid} onOpen={openSavedLibraryWork} />
+        <SavedSharedWorksPanel key={authUser.uid} uid={authUser.uid} onOpen={openSavedLibraryWork} onDelete={work => handleDeleteTextWork({ ...work, workId: work.personalWorkId! }, true)} onBeforeSave={() => saveReadingProgress()} />
         {currentGroup && <GroupWorkSharingPanel
           key={`${authUser.uid}:${currentGroup.id}`}
           uid={authUser.uid} username={username} groupId={currentGroup.id}
           hasSelectedWork={hasSelectedWork}
+          onBeforeSave={() => saveReadingProgress()}
           ownedWorkId={hasSelectedWork && currentWork.type === "text" ? ownedTextWorkId : null}
           onOpen={async work => {
             saveReadingProgress();
@@ -6589,38 +6618,11 @@ if (readingSessionIdRef.current) {
                       isAutoScroll ? "text-[#a6445a]" : "text-gray-400"
                     }
                   >
-                    {isAutoScroll ? `${autoSpeed}px/秒` : "停止中"}
+                    {`${autoSpeed} / 100 · ${isAutoScroll ? "再生中" : "停止中"}`}
                   </span>
                 </summary>
                 <div className="border-t border-gray-100 px-3 pb-3 pt-3">
-                  <input
-                    type="range"
-                    min="0"
-                    max="45"
-                    step="1"
-                    value={isAutoScroll ? autoSpeed : 0}
-                    onChange={(event) => {
-  const nextSpeed = Number(event.target.value);
-
-  if (nextSpeed <= 0) {
-    changeAutoScroll(false);
-    return;
-  }
-
-  setAutoSpeed(nextSpeed);
-
-  if (!isAutoScroll) {
-    changeAutoScroll(true);
-  }
-}}
-                    className="w-full accent-[#d8a348]"
-                    aria-label="自動スクロール速度"
-                  />
-                  <div className="mt-1 flex justify-between text-[0.62rem] font-bold text-gray-400">
-                    <span>停止</span>
-                    <span>ゆっくり</span>
-                    <span>速い</span>
-                  </div>
+                  <AutoScrollControls speed={autoSpeed} playing={isAutoScroll} onSpeedChange={changeAutoSpeed} onToggle={() => changeAutoScroll(!isAutoScroll)} />
                 </div>
               </details>
 
@@ -7026,31 +7028,10 @@ if (readingSessionIdRef.current) {
                       自動スクロール
                     </span>
                     <span className="text-xs font-bold text-[#a6445a]">
-                      {isAutoScroll ? `${autoSpeed}px/秒` : "停止中"}
+                      {`${autoSpeed} / 100 · ${isAutoScroll ? "再生中" : "停止中"}`}
                     </span>
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="45"
-                    step="1"
-                    value={isAutoScroll ? autoSpeed : 0}
-                    onChange={(event) => {
-  const nextSpeed = Number(event.target.value);
-
-  if (nextSpeed <= 0) {
-    changeAutoScroll(false);
-    return;
-  }
-
-  setAutoSpeed(nextSpeed);
-
-  if (!isAutoScroll) {
-    changeAutoScroll(true);
-  }
-}}
-                    className="w-full accent-[#d8a348]"
-                  />
+                  <AutoScrollControls speed={autoSpeed} playing={isAutoScroll} onSpeedChange={changeAutoSpeed} onToggle={() => changeAutoScroll(!isAutoScroll)} />
                 </div>
 
                 <div>
