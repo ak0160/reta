@@ -1608,6 +1608,8 @@ export default function Home() {
   const readingUnitsLengthRef = useRef(0);
     // 実験用の読書ログを管理する。
   const readingSessionIdRef = useRef<string | null>(null);
+  const [mobileSessionPending, setMobileSessionPending] = useState(false);
+  const [mobileSessionError, setMobileSessionError] = useState<string | null>(null);
   const readingSessionStartedAtRef = useRef<number | null>(null);
   const readingSessionLastActiveAtRef = useRef<number | null>(null);
   const lastPositionLogAtRef = useRef(0);
@@ -6898,6 +6900,38 @@ if (readingSessionIdRef.current) {
 
             {mobilePanel === "controls" && (
               <div className="space-y-4">
+                <div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(["start", "end"] as const).map(action => (
+                      <button
+                        key={action}
+                        type="button"
+                        disabled={mobileSessionPending || (action === "start"
+                          ? Boolean(readingSessionIdRef.current) || readingUnits.length === 0
+                          : !readingSessionIdRef.current)}
+                        onClick={async () => {
+                          setMobileSessionPending(true);
+                          setMobileSessionError(null);
+                          try {
+                            if (action === "start") await startReadingSession();
+                            else await endReadingSession();
+                          } catch (error) {
+                            console.error("読書セッション操作失敗", error);
+                            setMobileSessionError("記録できませんでした。通信状況を確認して、もう一度お試しください。");
+                          } finally {
+                            setMobileSessionPending(false);
+                          }
+                        }}
+                        className={`rounded-xl border px-2 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40 ${action === "start"
+                          ? "border-[#bf596f] bg-[#bf596f] text-white"
+                          : "border-[#eed5d8] bg-[#fffdfa] text-[#a6445a]"}`}
+                      >
+                        {action === "start" ? "▶ 読みはじめる" : "■ 読み終える"}
+                      </button>
+                    ))}
+                  </div>
+                  {mobileSessionError && <p role="alert" className="mt-2 text-xs text-[#a6445a]">{mobileSessionError}</p>}
+                </div>
                 <div>
                   <p className="mb-2 text-xs font-black text-gray-500">
                     読み方
