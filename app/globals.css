@@ -1728,6 +1728,32 @@ rt {
   }
 }
 
+/* Reserve space for the heading and footprints, not only the reading body. */
+.reta-workspace .reta-reader-card:not(.is-horizontal) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: calc(100dvh - 7rem);
+}
+
+.reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reader-body {
+  height: auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reading-map {
+  min-height: 0;
+  max-height: 45dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 1023px) {
+  .reta-workspace .reta-reader-card:not(.is-horizontal) {
+    height: calc(100dvh - 11rem - env(safe-area-inset-bottom, 0px));
+  }
+}
+
 /* Reading map: positions and participant colours come from the existing JSX. */
 .reta-workspace .reta-reading-map {
   background: #fffdfa;
@@ -1942,5 +1968,127 @@ rt {
 
   .reta-workspace .reta-mobile-panel input[type="range"] {
     accent-color: #bf596f;
+  }
+}
+
+
+/* 横書きだけ、本文DOMを移動・複製せず足あとを左列に配置する。 */
+.reta-workspace .reta-reader-card.is-horizontal {
+  --reta-side-map-width: clamp(88px, 17vw, 144px);
+  display: grid;
+  grid-template-columns: var(--reta-side-map-width) minmax(0, 1fr);
+  grid-template-areas: "heading heading" "footprints body";
+}
+
+.reta-workspace .is-horizontal > .reta-reader-card-heading { grid-area: heading; }
+.reta-workspace .is-horizontal > .reta-reader-body {
+  grid-area: body;
+  min-width: 0;
+  padding-inline: clamp(0.5rem, 2vw, 1.5rem);
+}
+
+.reta-workspace .is-horizontal > .reta-reading-map {
+  grid-area: footprints;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px 10px;
+  border-top: 0;
+  border-right: 1px solid #eee3df;
+}
+
+.reta-workspace .is-horizontal .reta-map-heading {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.reta-workspace .is-horizontal .reta-map-heading > span:first-child {
+  font-weight: 700;
+  color: #a6445a;
+}
+
+.reta-workspace .is-horizontal .reta-map-legend {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 20px;
+  font-size: 9px;
+}
+
+.reta-workspace .is-horizontal .reta-map-legend > span {
+  gap: 4px;
+  font-size: 8px;
+}
+
+.reta-workspace .is-horizontal .reta-map-legend > span > span {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.reta-workspace .is-horizontal .reta-map-interactive {
+  flex: 1;
+  display: block;
+  min-height: 260px;
+  padding-bottom: 0;
+}
+
+.reta-workspace .is-horizontal .reta-map-track {
+  position: absolute;
+  left: 24px;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  height: auto;
+  margin: 0;
+}
+
+.reta-workspace .is-horizontal .reta-map-name {
+  left: 16px;
+  top: 50% !important;
+  bottom: auto !important;
+  transform: translateY(-50%);
+  max-width: calc(var(--reta-side-map-width) - 54px);
+  font-size: 10px;
+  text-align: left;
+}
+
+.reta-workspace .is-horizontal .reta-map-participant:first-child:not(.reta-map-self) .reta-map-name {
+  margin-top: -12px;
+}
+
+.reta-workspace .is-horizontal .reta-map-self .reta-map-name { margin-top: 12px; }
+
+.reta-workspace .is-horizontal .reta-map-heart {
+  left: -34px;
+  min-width: 28px;
+  min-height: 32px;
+  transform: translateY(-50%);
+  font-size: 15px;
+}
+
+.reta-workspace .is-horizontal .reta-map-heart-count {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  padding: 1px 3px;
+  border-radius: 999px;
+  background: #fff0f4;
+  font-size: 9px;
+}
+
+.reta-workspace .is-horizontal .reta-map-reaction-card {
+  position: absolute;
+  left: calc(100% + 14px) !important;
+  width: min(20rem, calc(100vw - var(--reta-side-map-width) - 3rem));
+  max-height: min(20rem, 50dvh, 100%);
+  margin-top: 0;
+}
+
+@media (max-width: 639px) {
+  .reta-workspace .is-horizontal .horizontal-reading-unit {
+    padding-inline: 1rem !important;
   }
 }
