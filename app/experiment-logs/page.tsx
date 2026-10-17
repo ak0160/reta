@@ -262,6 +262,130 @@ export default function ExperimentLogsPage() {
     }
   };
 
+
+  const downloadResearchExcel = async () => {
+    if (exportBusyRef.current || !experimentId.trim() || !exportSessions.length || invalidRange) return;
+
+    exportBusyRef.current = true;
+    setExportBusy(true);
+    setExportMessage("");
+
+    const selected = [...exportSessions];
+    const id = experimentId.trim();
+
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const workbook = new ExcelJS.Workbook();
+
+      const recordedEvents: ReadingEvent[] = [];
+
+      for (let index = 0; index < selected.length; index += 30) {
+        const ids = selected.slice(index, index + 30).map(session => session.id);
+        const snapshot = await getDocs(
+          query(collection(db, "readingEvents"), where("sessionId", "in", ids))
+        );
+        recordedEvents.push(
+          ...snapshot.docs.map(item => ({
+            ...item.data(),
+            id: item.id
+          }) as ReadingEvent)
+        );
+      }
+
+      const addSheet = (name: string, rows: unknown[][]) => {
+        const sheet = workbook.addWorksheet(name);
+        rows.forEach(row => {
+          sheet.addRow(row.map(value => {
+            if (value === null || value === undefined) return "";
+            if (typeof value === "number" || typeof value === "boolean") return value;
+            const text = String(value);
+            return /^[=+@\\-\\t\\r\\n]/.test(text) ? "'" + text : text;
+          }));
+        });
+
+        sheet.getRow(1).font = { bold: true };
+        sheet.views = [{ state: "frozen", ySplit: 1 }];
+        sheet.columns.forEach(column => { column.width = 22; });
+      };
+
+      addSheet("参加者・条件", researchRows("conditions", id, selected, recordedEvents));
+      addSheet("読書結果", researchRows("results", id, selected, recordedEvents));
+      addSheet("アンケート", researchRows("survey", id, selected, recordedEvents));
+
+      const sessionMap = new Map(selected.map(session => [session.id, session]));
+
+      const base = (event: ReadingEvent) => {
+        const session = sessionMap.get(event.sessionId ?? "");
+        return [
+          id,
+          session?.username ?? "",
+          event.userId ?? session?.userId ?? "",
+          event.sessionId ?? "",
+          session?.title ?? "",
+          session?.mode === "shared" ? "共有" : "ひとり",
+          csvDateTime(event.createdAt),
+          event.createdAt ?? "",
+          event.paragraphIndex ?? "",
+          event.percent ?? "",
+          event.layoutMode ?? "",
+          event.groupId ?? ""
+        ];
+      };
+
+      const headers = [
+        "実験回ID", "アカウント名", "参加者UID", "セッションID",
+        "作品名", "記録上の読書モード", "日時（日本時間）",
+        "Unix時刻（ミリ秒）", "段落番号（0始まり）",
+        "進捗率（%）", "レイアウト", "グループID"
+      ];
+
+      const sorted = [...recordedEvents].sort(
+        (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)
+      );
+
+      addSheet("読書位置推移", [
+        headers,
+        ...sorted.filter(event => event.type === "position")
+          .map(event => base(event))
+      ]);
+
+      addSheet("操作履歴", [
+        [...headers, "操作", "イベント種別", "絵文字", "コメント", "イベントID"],
+        ...sorted.filter(event => event.type !== "position")
+          .map(event => [
+            ...base(event),
+            getEventLabel(event.type),
+            event.type ?? "",
+            event.reactionEmoji ?? "",
+            event.reactionComment ?? "",
+            event.id
+          ])
+      ]);
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer as BlobPart], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `reta-experiment-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      setExportMessage(`${selected.length}件のセッションをExcelに出力しました。`);
+    } catch (error) {
+      console.error("Excel出力失敗", error);
+      setExportMessage("Excel出力に失敗しました。通信状態とアクセス権を確認してください。");
+    } finally {
+      exportBusyRef.current = false;
+      setExportBusy(false);
+    }
+  };
+
   const positionEvents = events.filter(
     (event) => event.type === "position",
   );
@@ -403,6 +527,14 @@ export default function ExperimentLogsPage() {
                 </fieldset>
                 <p className="mt-3 text-sm font-bold text-[#a6445a]">対象：{exportSessions.length}件のセッション</p>
                 {invalidRange && <p role="alert" className="mt-2 text-sm text-red-700">終了日は開始日以降にしてください。</p>}
+                <button
+                  type="button"
+                  disabled={exportBusy || !experimentId.trim() || !exportSessions.length || invalidRange}
+                  onClick={() => void downloadResearchExcel()}
+                  className="mt-3 min-h-11 rounded-xl bg-[#a6445a] px-5 py-2 text-sm font-bold text-white disabled:opacity-40"
+                >
+                  Excel・Numbers共通ダウンロード（5シート）
+                </button>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {([
                     ["conditions", "① 参加者・条件表"],
