@@ -2475,7 +2475,7 @@ void saveReadingEvent("layout_change").catch((error) => {
     const authorizeReceivedWork = async () => {
       const saved = await getSavedSharedWork(db, authUser.uid, workId);
       if (saved) return saved.ownerId;
-      if (!currentGroup) throw new Error("この共有作品を退出前にマイライブラリへ保存してください。");
+      if (!currentGroup) throw new Error("この共有作品を読むには、共有元のグループに参加してください。");
       const shared = await prepareSharedTextWork(db, authUser.uid, currentGroup.id, workId);
       return shared.ownerId;
     };
@@ -5755,7 +5755,6 @@ if (readingSessionIdRef.current) {
           key={`${authUser.uid}:${currentGroup.id}`}
           uid={authUser.uid} username={username} groupId={currentGroup.id}
           hasSelectedWork={hasSelectedWork}
-          onBeforeSave={() => saveReadingProgress()}
           ownedWorkId={hasSelectedWork && currentWork.type === "text" ? ownedTextWorkId : null}
           onOpen={async work => {
             if (deletingTextWorkIdRef.current === work.workId) throw new Error("一覧から外す処理が終わってから、もう一度開いてください。");
@@ -7087,14 +7086,14 @@ if (readingSessionIdRef.current) {
                       type="button"
                       disabled={!currentGroup}
                   onClick={() => changeReaderMode("shared")}
-                      className="mt-4 rounded-xl bg-[#f3cf7a] px-5 py-3 text-sm font-black text-gray-800"
+                      className="mt-4 rounded-xl bg-[#bf596f] px-5 py-3 text-sm font-black text-white"
                     >
                       一緒に読む
                     </button>
                   </div>
                 ) : (
                   <>
-                    <div className="rounded-2xl bg-yellow-50 p-3">
+                    <div className="rounded-2xl bg-[#fff3f5] p-3">
                       <p className="mb-2 text-xs font-bold text-gray-500">
                         今の区切りにリアクション
                       </p>
@@ -7107,7 +7106,7 @@ if (readingSessionIdRef.current) {
                             onClick={() => setReactionEmoji(emoji)}
                             className={`rounded-xl py-3 text-xl ${
                               reactionEmoji === emoji
-                                ? "bg-yellow-300"
+                                ? "bg-[#f9e2e7] ring-1 ring-[#d99aaa]"
                                 : "bg-white"
                             }`}
                           >
@@ -7122,13 +7121,13 @@ if (readingSessionIdRef.current) {
                           setReactionComment(event.target.value)
                         }
                         placeholder="コメントを書く"
-                        className="h-20 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none"
+                        className="h-20 w-full rounded-xl border border-[#eed5d8] bg-[#fffdfa] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#bf596f]"
                       />
 
                       <button
                         type="button"
                         onClick={handleAddReaction}
-                        className="mt-2 w-full rounded-xl bg-yellow-300 px-4 py-3 text-sm font-black text-gray-800"
+                        className="mt-2 w-full rounded-xl bg-[#bf596f] px-4 py-3 text-sm font-black text-white"
                       >
                         追加する
                       </button>

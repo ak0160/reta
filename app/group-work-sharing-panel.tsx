@@ -3,11 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { db } from "./firebase";
-import { parseSharedTextWork, prepareSharedTextWork, shareOwnedTextWork, saveSharedTextWork, type SharedTextWork } from "./group-work-sharing";
+import { parseSharedTextWork, prepareSharedTextWork, shareOwnedTextWork, type SharedTextWork } from "./group-work-sharing";
 
-export default function GroupWorkSharingPanel({ uid, username, groupId, ownedWorkId, hasSelectedWork, onOpen, onMembershipLost, onGroupMembersChanged, onBeforeSave }: {
+export default function GroupWorkSharingPanel({ uid, username, groupId, ownedWorkId, hasSelectedWork, onOpen, onMembershipLost, onGroupMembersChanged }: {
   uid: string; username: string; groupId: string; ownedWorkId: string | null; hasSelectedWork: boolean;
-  onBeforeSave: () => void;
   onOpen: (work: SharedTextWork) => Promise<void>;
   onMembershipLost: () => void;
   onGroupMembersChanged: (memberIds: string[]) => void;
@@ -103,15 +102,6 @@ export default function GroupWorkSharingPanel({ uid, username, groupId, ownedWor
       {works.length === 0 ? <p className="mt-2 text-xs text-gray-500">まだ共有作品はありません。</p> : <ul className="mt-2 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">{works.map(work => <li key={work.workId} className="flex items-center justify-between gap-2 rounded-xl border border-[#eee3df] p-3">
         <div className="min-w-0"><p className="break-words text-sm font-bold">{work.title}</p><p className="break-words text-xs text-gray-500">{work.author} · 共有：{work.sharedByName}</p></div>
         <div className="flex shrink-0 flex-col gap-2">
-        {work.ownerId !== uid && <button type="button" disabled={busy} onClick={async () => {
-          setBusy(true); setError(""); setNotice("");
-          try {
-            onBeforeSave();
-            const added = await saveSharedTextWork(db, uid, groupId, work.workId);
-            if (alive.current) setNotice(added ? "自分の作品として保存しました。共有元が削除しても手元に残ります。" : "この作品は保存済みです。");
-          } catch (error) { if (alive.current) setError(error instanceof Error ? error.message : "保存に失敗しました。"); }
-          finally { if (alive.current) setBusy(false); }
-        }} className="rounded-lg bg-[#fcf0f1] px-3 py-2 text-xs font-bold text-[#a6445a] disabled:opacity-40">マイライブラリに保存</button>}
         <button type="button" disabled={busy} onClick={() => void open(work)} className="shrink-0 rounded-lg border border-[#eed5d8] px-3 py-2 text-xs font-bold text-[#a6445a] disabled:opacity-40">開く</button></div>
       </li>)}</ul>}
     </details>}
