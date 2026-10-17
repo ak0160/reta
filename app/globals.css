@@ -1759,6 +1759,18 @@ rt {
   background: #fffdfa;
 }
 
+.reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reading-map {
+  padding-block: 10px;
+}
+
+.reta-workspace .reta-reader-card:not(.is-horizontal) .reta-map-heading {
+  margin-bottom: 6px;
+}
+
+.reta-workspace .reta-reader-card:not(.is-horizontal) .reta-map-legend {
+  margin-top: 12px;
+}
+
 .reta-workspace .reta-map-track {
   height: 4px;
   margin: 2.75rem 0.5rem 0;
@@ -1939,8 +1951,8 @@ rt {
 }
 
 
-/* タブレット縦向きの操作だけを現在のブランド配色に統一。本文・レイアウトは維持。 */
-@media (min-width: 640px) and (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
+/* スマホとタブレット縦向きの操作を同じブランド配色に統一。 */
+@media (max-width: 1023px), (min-width: 640px) and (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
   .reta-workspace .reta-mobile-panel,
   .reta-workspace .reta-mobile-nav {
     background-color: #fffdfa;
@@ -1958,6 +1970,16 @@ rt {
 
   .reta-workspace .reta-mobile-panel [class~="bg-yellow-50"] {
     background-color: #fff3f5;
+  }
+
+  .reta-workspace .reta-mobile-panel textarea {
+    background-color: #fffdfa;
+    border-color: #eed5d8;
+  }
+
+  .reta-workspace .reta-mobile-panel textarea:focus-visible {
+    outline: 2px solid #bf596f;
+    outline-offset: 2px;
   }
 
   .reta-workspace .reta-mobile-panel button[class~="bg-yellow-300"],
@@ -2090,5 +2112,34 @@ rt {
 @media (max-width: 639px) {
   .reta-workspace .is-horizontal .horizontal-reading-unit {
     padding-inline: 1rem !important;
+  }
+}
+
+/* Keep a readable page of text even when mobile browser chrome reduces dvh.
+   The footprints follow the same body DOM in normal document flow. */
+@media (max-width: 639px), (min-width: 640px) and (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
+  .reta-workspace .reta-reader-card:not(.is-horizontal) {
+    height: auto;
+  }
+
+  .reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reader-body,
+  .reta-workspace .reta-reader-card.is-horizontal > .reta-reader-body {
+    height: clamp(360px, 64dvh, 720px);
+    min-height: 360px;
+    padding: 20px 14px;
+  }
+
+  .reta-workspace .reta-reader-card-heading {
+    padding: 12px 14px;
+  }
+}
+
+@media (max-width: 639px) {
+  .reta-workspace .reta-reader-body > .font-serif {
+    font-size: 18px;
+  }
+
+  .reta-workspace .reta-reader-body .horizontal-reading-content {
+    padding-top: 0.5rem;
   }
 }
