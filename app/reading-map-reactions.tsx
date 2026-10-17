@@ -22,8 +22,9 @@ export function groupMapReactions(reactions: MapReaction[], currentIndex: number
   return groups;
 }
 
-export default function ReadingMapReactions({ reactions, currentIndex, getPercent, children }: {
+export default function ReadingMapReactions({ reactions, currentIndex, getPercent, children, vertical = false }: {
   reactions: MapReaction[];
+  vertical?: boolean;
   currentIndex: number;
   getPercent: (index: number) => number;
   children: ReactNode;
@@ -68,7 +69,7 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
     };
   }, [open, selected]);
 
-  return <div ref={wrapper} className={`reta-map-interactive${open ? " is-open" : ""}`} onKeyDown={event => {
+  return <div ref={wrapper} className={`reta-map-interactive${open ? " is-open" : ""}${vertical ? " is-vertical" : ""}`} onKeyDown={event => {
     // カード内のキー操作で本文の読書ショートカットを発火させない。
     event.stopPropagation();
     if (event.key === "Escape") { event.preventDefault(); close(true); }
@@ -79,7 +80,7 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
         key={index}
         type="button"
         className={`reta-map-heart${selected === index ? " is-selected" : ""}`}
-        style={{ left: `${100 - getPercent(index)}%` }}
+        style={vertical ? { top: `${getPercent(index)}%` } : { left: `${100 - getPercent(index)}%` }}
         aria-label={`${index + 1}区切り目のリアクション ${items.length}件を表示`}
         aria-haspopup="dialog"
         aria-expanded={selected === index}
@@ -95,7 +96,9 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
       role="dialog"
       aria-labelledby={`${id}-title`}
       className="reta-map-reaction-card"
-      style={{ left: `clamp(0px, calc(${100 - getPercent(selected)}% - 10rem), max(0px, calc(100% - 20rem)))` }}
+      style={vertical
+        ? { top: `clamp(0px, calc(${getPercent(selected)}% - 1rem), max(0px, calc(100% - min(20rem, 50dvh))))` }
+        : { left: `clamp(0px, calc(${100 - getPercent(selected)}% - 10rem), max(0px, calc(100% - 20rem)))` }}
     >
       <div className="reta-map-reaction-card-header">
         <h3 id={`${id}-title`}>{selected + 1}区切り目 <span>· {active.length}件</span></h3>

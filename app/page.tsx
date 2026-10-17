@@ -4766,9 +4766,9 @@ useEffect(() => {
   };
 
   const getFocusX = (mode: LayoutMode, areaRect: DOMRect) => {
-    // 縦書き通常段落は文頭を少し右寄りへ。
-    // 2文グループは画面中央へ。
-    const ratio = mode === "grouped" ? 0.5 : 0.82;
+    // 標準は文頭を右寄りへ。2文グループも中央より少し右を基準にする。
+    // 手動スクロール・自動スクロール・位置復元で同じ基準を使う。
+    const ratio = mode === "grouped" ? 0.65 : 0.82;
     return areaRect.left + areaRect.width * ratio;
   };
 
@@ -6106,8 +6106,8 @@ if (readingSessionIdRef.current) {
         </header>
 
         <div className="grid gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
-          <section className="reta-reader-card overflow-hidden rounded-2xl border border-[#eee3df] bg-[#fffdfa] shadow-[0_14px_34px_rgba(30,41,59,0.07)] sm:rounded-[1.75rem]">
-            <div className="border-b border-gray-100 px-5 py-4">
+          <section className={`reta-reader-card overflow-hidden rounded-2xl border border-[#eee3df] bg-[#fffdfa] shadow-[0_14px_34px_rgba(30,41,59,0.07)] sm:rounded-[1.75rem] ${layoutMode === "horizontal" ? "is-horizontal" : ""}`}>
+            <div className="reta-reader-card-heading border-b border-gray-100 px-5 py-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-bold text-gray-700">
@@ -6136,7 +6136,7 @@ if (readingSessionIdRef.current) {
             <div
               ref={readingAreaRef}
               onScroll={updateActiveUnitByCenter}
-              className={`relative h-[calc(100dvh-11rem)] min-h-[420px] px-4 py-6 sm:h-[72vh] sm:px-8 sm:py-8 md:h-[74vh] md:px-10 lg:h-[78vh] lg:px-14 lg:py-10 ${
+              className={`reta-reader-body relative h-[calc(100dvh-11rem)] min-h-[420px] px-4 py-6 sm:h-[72vh] sm:px-8 sm:py-8 md:h-[74vh] md:px-10 lg:h-[78vh] lg:px-14 lg:py-10 ${
                 layoutMode === "horizontal"
                   ? "overflow-y-auto overflow-x-hidden"
                   : "overflow-x-auto overflow-y-hidden"
@@ -6378,7 +6378,7 @@ if (readingSessionIdRef.current) {
             </div>
 
             <div className="reta-reading-map border-t border-gray-100 px-6 py-5">
-              <div className="mb-3 flex items-center justify-between text-xs text-gray-500">
+              <div className="reta-map-heading mb-3 flex items-center justify-between text-xs text-gray-500">
                 <span>ReTAの足あと</span>
 
                 <span>
@@ -6388,6 +6388,7 @@ if (readingSessionIdRef.current) {
 
               <ReadingMapReactions
                 key={`${authUser.uid}:${currentGroup?.id ?? ""}:${currentWork.workId}:${selectedStory}:${layoutMode}`}
+                vertical={layoutMode === "horizontal"}
                 reactions={visibleReactions}
                 currentIndex={currentParagraphIndex}
                 getPercent={index => getMapPercent(index, readingUnits.length)}
@@ -6410,8 +6411,9 @@ if (readingSessionIdRef.current) {
                         key={participant.id}
                         className="reta-map-participant absolute flex flex-col items-center"
                         style={{
-                          left: `${100 - percent}%`,
-                          transform: "translateX(-50%)",
+                          ...(layoutMode === "horizontal"
+                            ? { top: `${percent}%`, left: "-4px", transform: "translateY(-50%)" }
+                            : { left: `${100 - percent}%`, transform: "translateX(-50%)" }),
                         }}
                         title={`${participant.name}：${
                           participant.paragraphIndex + 1
@@ -6429,14 +6431,13 @@ if (readingSessionIdRef.current) {
                   <div
                     className="reta-map-participant reta-map-self absolute flex flex-col items-center"
                     style={{
-                      left: `calc(100% - ${
-                        readingUnits.length <= 1
-                          ? 0
-                          : (currentParagraphIndex /
-                              (readingUnits.length - 1)) *
-                            100
-                      }%)`,
-                      transform: "translateX(-50%)",
+                      ...(layoutMode === "horizontal" ? {
+                        top: `${readingUnits.length <= 1 ? 0 : (currentParagraphIndex / (readingUnits.length - 1)) * 100}%`,
+                        left: "-4px", transform: "translateY(-50%)",
+                      } : {
+                        left: `calc(100% - ${readingUnits.length <= 1 ? 0 : (currentParagraphIndex / (readingUnits.length - 1)) * 100}%)`,
+                        transform: "translateX(-50%)",
+                      }),
                     }}
                     title={`自分：${currentParagraphIndex + 1}区切り目`}
                   >
@@ -6449,7 +6450,7 @@ if (readingSessionIdRef.current) {
 
               </ReadingMapReactions>
 
-              <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-gray-500">
+              <div className="reta-map-legend mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-gray-500">
                 <span className="inline-flex items-center gap-2">
                   <span aria-hidden="true" className="h-2 w-2 rounded-full bg-blue-400" />
                   参加者
