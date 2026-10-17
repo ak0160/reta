@@ -7166,6 +7166,40 @@ if (readingSessionIdRef.current) {
 
             {mobilePanel === "more" && (
               <div className="space-y-4">
+                <details className="rounded-2xl border border-[#eed5d8] bg-[#fffdfa]" open>
+                  <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-[#a6445a]">
+                    TXT作品の管理
+                  </summary>
+                  <div className="border-t border-[#eed5d8] px-3 pb-3 pt-2">
+                    <p className="mb-3 text-xs leading-relaxed text-gray-500">
+                      削除前に確認画面が表示されます。共有してもらった作品は自分の履歴から外し、共有元の本文は削除しません。
+                    </p>
+                    {registeredTextWorks.length === 0 ? (
+                      <p className="py-3 text-sm text-gray-500">削除できるTXT作品はありません。</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {registeredTextWorks.map(work => (
+                          <li key={work.workId} className="flex items-center gap-3 rounded-xl border border-[#eee3df] bg-white p-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="break-words text-sm font-bold text-gray-900">{work.title}</p>
+                              <p className="mt-1 break-words text-xs text-gray-500">{work.author}</p>
+                            </div>
+                            <button
+                              type="button"
+                              aria-label={`『${work.title}』を削除`}
+                              disabled={isDeletingTextWork}
+                              onClick={() => void handleDeleteTextWork(work)}
+                              className="min-h-11 shrink-0 rounded-xl border border-[#eed5d8] bg-[#fff3f5] px-4 text-sm font-bold text-[#a6445a] disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {isDeletingTextWork && deletingTextWorkIdRef.current === work.workId ? "処理中…" : "削除"}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {textDeleteError && <p role="alert" className="mt-3 rounded-xl bg-[#fff3f5] p-3 text-xs text-[#a6445a]">{textDeleteError}</p>}
+                  </div>
+                </details>
                 <div className="rounded-2xl bg-[#fcf0f1] p-4">
                   <p className="text-xs font-black text-[#a6445a]">
                     GROUP
