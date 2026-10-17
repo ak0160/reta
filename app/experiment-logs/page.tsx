@@ -3,24 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
+import { accountKey, csvDateTime, jstDate, researchRows, toCsv, type ResearchSession, type ResearchTable } from "./research-csv";
 
-type ReadingSession = {
-  id: string;
-  userId?: string;
-  workId?: string;
-  workType?: string;
-  author?: string;
-  sourceUrl?: string;
-  username?: string;
-  title?: string;
-  mode?: "solo" | "shared";
-  startedAt?: number;
-  lastSeenAt?: number;
-  endedAt?: number | null;
-  startPercent?: number;
-  endPercent?: number;
-  activeDurationMs?: number;
-};
+type ReadingSession = ResearchSession;
 
 type ReadingEvent = {
   id: string;
@@ -122,21 +107,16 @@ const formatDuration = (durationMs?: number) => {
   return `${minutes}分${seconds}秒`;
 };
 
-// CSVは表示中のイベントのみを出力する。保存済みの値は補正しない。
-const csvCell = (value: unknown) => {
-  const text = value === null || value === undefined ? "" : String(value);
-  // 表計算ソフトによる利用者名・コメント等の数式実行を防ぐ。
-  const safeText = /^[=+\-@\t\r\n]/.test(text) ? `'${text}` : text;
-  return `"${safeText.replace(/"/g, '\"\"')}"`;
-};
-
-const csvDateTime = (timestamp?: number | null) => {
-  if (timestamp === null || timestamp === undefined || !Number.isFinite(timestamp)) return "";
-  return new Intl.DateTimeFormat("ja-JP", {
-    timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-  }).format(new Date(timestamp));
-};
+function downloadFile(rows: unknown[][], filename: string) {
+  const url = URL.createObjectURL(new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export default function ExperimentLogsPage() {
   const [sessions, setSessions] = useState<ReadingSession[]>([]);
@@ -146,6 +126,13 @@ export default function ExperimentLogsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [experimentId, setExperimentId] = useState("");
+  const [exportAccount, setExportAccount] = useState("");
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportUntil, setExportUntil] = useState("");
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportMessage, setExportMessage] = useState("");
+  const exportBusyRef = useRef(false);
   const eventRequestRef = useRef(0);
 
   const loadEvents = async (sessionId: string) => {
@@ -235,16 +222,44 @@ export default function ExperimentLogsPage() {
       event.groupId, event.reactionEmoji, event.reactionComment, csvDateTime(selectedSession.startedAt),
       csvDateTime(selectedSession.endedAt), JSON.stringify(event), JSON.stringify(selectedSession),
     ]);
-    const csv = "\uFEFF" + [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `reta-experiment-events-${selectedSession.id.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    // ブラウザがダウンロードを開始するまでURLを維持する。
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadFile([headers, ...rows], `reta-experiment-events-${selectedSession.id.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
+  };
+
+  const exportSessions = sessions.filter(session => {
+    const date = jstDate(session.startedAt);
+    return (!exportAccount || accountKey(session) === exportAccount)
+      && (!exportFrom || (date !== "" && date >= exportFrom))
+      && (!exportUntil || (date !== "" && date <= exportUntil));
+  });
+  const invalidRange = Boolean(exportFrom && exportUntil && exportFrom > exportUntil);
+
+  const downloadResearchTable = async (table: ResearchTable) => {
+    if (exportBusyRef.current || !experimentId.trim() || !exportSessions.length || invalidRange) return;
+    exportBusyRef.current = true;
+    setExportBusy(true);
+    setExportMessage("");
+    // 操作開始時の対象を固定し、途中でフィルターを変更しても混ざらないようにする。
+    const selected = [...exportSessions];
+    const id = experimentId.trim();
+    try {
+      const recordedEvents: ReadingEvent[] = [];
+      if (table === "results") {
+        // 必要なセッションのみ取得。書き込みや全イベントの一括取得は行わない。
+        for (let index = 0; index < selected.length; index += 30) {
+          const ids = selected.slice(index, index + 30).map(session => session.id);
+          const snapshot = await getDocs(query(collection(db, "readingEvents"), where("sessionId", "in", ids)));
+          recordedEvents.push(...snapshot.docs.map(item => ({ ...item.data(), id: item.id }) as ReadingEvent));
+        }
+      }
+      downloadFile(researchRows(table, id, selected, recordedEvents), `reta-${table}-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
+      setExportMessage(`${selected.length}件のセッションを出力しました。手入力欄はNumbersで記入してください。`);
+    } catch (error) {
+      console.error("実験用CSV出力失敗", error);
+      setExportMessage("CSVを出力できませんでした。通信状態とアクセス権を確認して再度お試しください。取得に失敗した件数を0として出力することはありません。");
+    } finally {
+      exportBusyRef.current = false;
+      setExportBusy(false);
+    }
   };
 
   const positionEvents = events.filter(
@@ -359,6 +374,53 @@ export default function ExperimentLogsPage() {
 
           {!isLoading && !error && (
             <>
+              <details className="mb-6 rounded-3xl border border-[#eed5d8] bg-[#fffdfa] p-4 sm:p-5">
+                <summary className="cursor-pointer font-bold text-[#a6445a]">Numbers用の実験データを出力</summary>
+                <p className="mt-3 text-sm leading-relaxed text-gray-600">
+                  アカウント名と実験回IDで照合する3表です。各表は1セッションにつき1行で出力します。
+                  同じアカウントを再利用する場合は実施日で絞り、対象件数を確認してください。絞り込みはCSVのみに適用されます。
+                </p>
+                <fieldset disabled={exportBusy} className="mt-4 grid gap-3 sm:grid-cols-2 disabled:opacity-60">
+                  <label className="grid gap-1 text-sm font-bold text-gray-700">
+                    実験回ID（必須）
+                    <input value={experimentId} onChange={event => setExperimentId(event.target.value)} placeholder="例：E01" className="min-w-0 rounded-xl border border-[#eed5d8] bg-white px-3 py-2 font-normal" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-bold text-gray-700">
+                    対象アカウント
+                    <select value={exportAccount} onChange={event => setExportAccount(event.target.value)} className="min-w-0 rounded-xl border border-[#eed5d8] bg-white px-3 py-2 font-normal">
+                      <option value="">全アカウント</option>
+                      {Array.from(sessionsByUser.entries()).map(([key, items]) => <option key={key} value={key}>{items[0].username || "名前なし"}{items[0].userId ? `（UID末尾：${items[0].userId.slice(-6)}）` : "（UID未記録）"}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-sm font-bold text-gray-700">
+                    開始日（日本時間・任意）
+                    <input type="date" value={exportFrom} onChange={event => setExportFrom(event.target.value)} className="min-w-0 rounded-xl border border-[#eed5d8] bg-white px-3 py-2 font-normal" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-bold text-gray-700">
+                    終了日（日本時間・任意）
+                    <input type="date" value={exportUntil} onChange={event => setExportUntil(event.target.value)} className="min-w-0 rounded-xl border border-[#eed5d8] bg-white px-3 py-2 font-normal" />
+                  </label>
+                </fieldset>
+                <p className="mt-3 text-sm font-bold text-[#a6445a]">対象：{exportSessions.length}件のセッション</p>
+                {invalidRange && <p role="alert" className="mt-2 text-sm text-red-700">終了日は開始日以降にしてください。</p>}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {([
+                    ["conditions", "① 参加者・条件表"],
+                    ["results", "② 読書結果表"],
+                    ["survey", "③ アンケート表"],
+                  ] as const).map(([table, label]) => <button key={table} type="button"
+                    disabled={exportBusy || !experimentId.trim() || !exportSessions.length || invalidRange}
+                    onClick={() => void downloadResearchTable(table)}
+                    className="min-h-11 rounded-xl border border-[#eed5d8] bg-[#fcf0f1] px-4 py-2 text-sm font-bold text-[#a6445a] disabled:cursor-not-allowed disabled:opacity-40">{label}</button>)}
+                </div>
+                <p className="mt-3 text-xs leading-relaxed text-gray-500">
+                  実験回IDはCSVだけに付けるラベルで、ログから実験回を自動判定するものではありません。
+                  読書条件・実施順序・端末・アンケート回答は手入力です。記録上の読書モードはグループ所属に基づくため、実験条件とは別の列です。
+                  アンケートは1：そう思わない〜5：そう思う。同条件で複数セッションがある場合は、回答をどの行に記入するか揃えてください。
+                  全CSVはUTF-8 BOM付きです。元のイベントCSVも下のボタンから残せます。
+                </p>
+                <p role="status" aria-live="polite" className="mt-2 text-sm text-[#a6445a]">{exportBusy ? "CSVを準備しています…" : exportMessage}</p>
+              </details>
               <div className="mb-4 flex items-end justify-between gap-4">
                 <div>
                   <p className="text-xs font-bold text-gray-400">
