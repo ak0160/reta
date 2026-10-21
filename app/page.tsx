@@ -5041,14 +5041,27 @@ useEffect(() => {
     };
 
     const smoothScroll = (now: number) => {
-      const deltaTime = (now - lastTime) / 1000;
+      // Background tabs must not jump forward when animation frames resume.
+      const deltaTime = Math.min(0.1, (now - lastTime) / 1000);
       lastTime = now;
 
+      const text = readingArea.querySelector<HTMLElement>(".font-serif");
+      const style = getComputedStyle(text ?? readingArea);
+      const fontSize = parseFloat(style.fontSize) || 20.8;
+      const lineHeight = parseFloat(style.lineHeight) || fontSize * 2.2;
+      const horizontal = layoutMode === "horizontal";
+      // Match text passing per second, rather than raw pixels on different screens.
+      const lineLength = horizontal
+        ? (text?.clientWidth ?? readingArea.clientWidth)
+        : Math.min(text?.clientHeight || readingArea.clientHeight, readingArea.clientHeight);
+      const charactersPerLine = Math.max(1, lineLength / fontSize);
+      const pixelsPerSecond = AUTO_SCROLL_SPEED * (lineHeight / 45.76) * (30 / charactersPerLine);
+
       if (layoutMode === "horizontal") {
-        virtualScrollTop += AUTO_SCROLL_SPEED * deltaTime;
+        virtualScrollTop += pixelsPerSecond * deltaTime;
         readingArea.scrollTop = virtualScrollTop;
       } else {
-        virtualScrollLeft -= AUTO_SCROLL_SPEED * deltaTime;
+        virtualScrollLeft -= pixelsPerSecond * deltaTime;
         readingArea.scrollLeft = virtualScrollLeft;
       }
 
@@ -5530,9 +5543,10 @@ if (readingSessionIdRef.current) {
 
   if (!authUser) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f5f1e8] px-4">
-        <div className="w-full max-w-md rounded-[2rem] border border-[#eee3d2] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
-          <div className="mb-2">
+      <main className="reta-entry reta-login flex min-h-screen items-center justify-center px-4 py-8">
+        <div className="reta-entry-card w-full max-w-md p-8">
+          <img src="./reta-logo.png" alt="" width={88} height={88} className="reta-entry-logo" />
+          <div className="mb-2 text-center">
             <p
               className="font-serif text-5xl font-semibold tracking-[-0.04em] text-[#334e68]"
               aria-label="ReTA"
@@ -5541,9 +5555,8 @@ if (readingSessionIdRef.current) {
             </p>
           </div>
 
-          <h1 className="mt-3 text-3xl font-bold text-gray-950">
-            共有読書システム
-          </h1>
+          <h1 className="reta-entry-greeting">{authMode === "login" ? "おかえりなさい" : "はじめまして"}</h1>
+          <p className="reta-entry-tagline">それぞれのペースで、いっしょに。</p>
 
           <p className="mt-2 text-sm leading-relaxed text-gray-500">
             利用者名とパスワードを入力してください。
@@ -5556,6 +5569,8 @@ if (readingSessionIdRef.current) {
                 setLoginName(event.target.value);
                 setAuthError("");
               }}
+              aria-label="利用者名"
+              autoComplete="username"
               placeholder="利用者名"
               className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
             />
@@ -5577,6 +5592,8 @@ if (readingSessionIdRef.current) {
                   }
                 }
               }}
+              aria-label="パスワード"
+              autoComplete={authMode === "login" ? "current-password" : "new-password"}
               placeholder="パスワード（6文字以上）"
               className="rounded-2xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-[#c79a53]"
             />
@@ -5626,8 +5643,8 @@ if (readingSessionIdRef.current) {
 
   if (!currentGroup && !soloLibraryOpen) {
     return (
-      <main className="reta-workspace flex min-h-screen items-center justify-center bg-[#faf7f3] px-4 py-8">
-        <div className="w-full max-w-2xl rounded-[2rem] border border-[#eee3df] bg-white p-8 shadow-[0_18px_45px_rgba(15,23,42,0.10)]">
+      <main className="reta-workspace reta-entry reta-group-entry flex min-h-screen items-center justify-center px-4 py-8">
+        <div className="reta-entry-card w-full max-w-2xl p-6 sm:p-8">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-3">
@@ -5640,7 +5657,7 @@ if (readingSessionIdRef.current) {
                 />
               </div>
               <h1 className="mt-3 text-3xl font-bold text-gray-950">
-                グループを選択
+                いっしょに読む準備
               </h1>
               <p className="mt-2 text-sm leading-relaxed text-gray-500">
                 新しいグループを作るか、6桁の参加コードを入力してください。
@@ -5680,6 +5697,7 @@ if (readingSessionIdRef.current) {
                     void handleCreateGroup();
                   }
                 }}
+                aria-label="グループ名"
                 placeholder="グループ名"
                 className="mt-5 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none focus:border-[#bf596f]"
               />
@@ -5714,6 +5732,9 @@ if (readingSessionIdRef.current) {
                   }
                 }}
                 maxLength={6}
+                aria-label="参加コード"
+                autoCapitalize="characters"
+                autoCorrect="off"
                 placeholder="6桁の参加コード"
                 className="mt-5 w-full rounded-2xl border border-gray-200 px-4 py-3 text-center text-lg font-bold tracking-[0.3em] uppercase outline-none focus:border-[#bf596f]"
               />

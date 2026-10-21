@@ -31,6 +31,7 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const wrapper = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const id = useId();
@@ -48,11 +49,11 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
 
   useEffect(() => {
     if (!open) return;
-    closeButton.current?.focus({ preventScroll: true });
+    // Keep focus on the heart so opening a note never scrolls the reading screen.
     const outside = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      const inCard = wrapper.current?.querySelector('[role="dialog"]')?.contains(target);
+      const inCard = card.current?.contains(target);
       const inHeart = target instanceof Element && wrapper.current?.contains(target) && target.closest(".reta-map-heart");
       if (!inCard && !inHeart) setSelected(null);
     };
@@ -92,13 +93,16 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
       ><span aria-hidden="true">♥</span>{items.length > 1 && <span className="reta-map-heart-count" aria-hidden="true">{items.length}</span>}</button>)}
     </div>
     {open && selected !== null && <section
+      ref={card}
+      onKeyDown={event => {
+        event.stopPropagation();
+        if (event.key === "Escape") { event.preventDefault(); close(true); }
+      }}
       id={id}
       role="dialog"
       aria-labelledby={`${id}-title`}
-      className="reta-map-reaction-card"
-      style={vertical
-        ? { top: `clamp(0px, calc(${getPercent(selected)}% - 1rem), max(0px, calc(100% - min(20rem, 50dvh))))` }
-        : { left: `clamp(0px, calc(${100 - getPercent(selected)}% - 10rem), max(0px, calc(100% - 20rem)))` }}
+      className="reta-map-reaction-card reta-map-inline-note"
+      style={vertical ? { top: `calc(${getPercent(selected)}% + 40px)` } : undefined}
     >
       <div className="reta-map-reaction-card-header">
         <h3 id={`${id}-title`}>{selected + 1}区切り目 <span>· {active.length}件</span></h3>

@@ -1844,7 +1844,7 @@ rt {
   font-weight: 700;
 }
 
-.reta-workspace .reta-map-interactive.is-open { padding-bottom: 0; }
+.reta-workspace .reta-map-interactive.is-open { padding-bottom: 2rem; }
 
 .reta-workspace .reta-map-reaction-card {
   position: relative;
@@ -1915,10 +1915,10 @@ rt {
 }
 
 @media (max-width: 1023px) {
-  .reta-workspace .reta-map-interactive.is-open { padding-bottom: 0; }
+  .reta-workspace .reta-map-interactive.is-open { padding-bottom: 2rem; }
   .reta-workspace .reta-map-reaction-card {
     position: relative;
-    left: auto !important;
+    left: auto;
     top: auto;
     width: 100%;
     margin-top: 2.75rem;
@@ -1994,12 +1994,12 @@ rt {
 }
 
 
-/* 横書きだけ、本文DOMを移動・複製せず足あとを左列に配置する。 */
+/* 横書きだけ、本文DOMを移動・複製せず足あとを右列に配置する。 */
 .reta-workspace .reta-reader-card.is-horizontal {
   --reta-side-map-width: clamp(88px, 17vw, 144px);
   display: grid;
-  grid-template-columns: var(--reta-side-map-width) minmax(0, 1fr);
-  grid-template-areas: "heading heading" "footprints body";
+  grid-template-columns: minmax(0, 1fr) var(--reta-side-map-width);
+  grid-template-areas: "heading heading" "body footprints";
 }
 
 .reta-workspace .is-horizontal > .reta-reader-card-heading { grid-area: heading; }
@@ -2016,7 +2016,7 @@ rt {
   min-width: 0;
   padding: 16px 10px;
   border-top: 0;
-  border-right: 1px solid #eee3df;
+  border-left: 1px solid #eee3df;
 }
 
 .reta-workspace .is-horizontal .reta-map-heading {
@@ -2143,3 +2143,50 @@ rt {
     padding-top: 0.5rem;
   }
 }
+
+/* Comments are local children of the footprints, never a full-screen layer. */
+.reta-workspace .reta-map-interactive > .reta-map-inline-note {
+  position: relative; inset: auto; transform: none;
+  width: 100%; max-height: 110px; min-height: 0;
+  margin: 40px 0 0; padding: 6px 10px;
+  border: 0; border-left: 2px solid #dfb3c0;
+  border-radius: 0 0 6px 6px; background: #fffdf9; box-shadow: none;
+  overflow-y: auto; overflow-wrap: anywhere;
+}
+.reta-workspace .is-horizontal .reta-map-interactive > .reta-map-inline-note {
+  position: absolute; left: 0 !important; right: 0;
+  width: 100%; max-height: 110px; margin: 0;
+}
+.reta-workspace .reta-map-inline-note .reta-map-reaction-card-header { position: static; padding-bottom: 2px; }
+.reta-workspace .reta-map-inline-note h3 { font-size: 10px; font-weight: 500; color: #967c84; }
+.reta-workspace .reta-map-inline-note li { padding-block: 4px; }
+.reta-workspace .reta-map-inline-note .reta-map-reaction-author { font-size: 11px; }
+.reta-workspace .reta-map-inline-note .reta-map-reaction-emoji { font-size: 15px; }
+.reta-workspace .reta-map-inline-note p { font-size: 12px; line-height: 1.8; }
+/* Warm paper, berry-pink details and book-like cards for ReTA's entry screens. */
+.reta-entry {
+  background-color: #fff8f3;
+  background-image: radial-gradient(ellipse at 12% 18%, #f8dfe7 0, transparent 48%), radial-gradient(ellipse at 90% 86%, #e8eddd 0, transparent 44%);
+  color: #59454b;
+}
+.reta-entry-card {
+  position: relative; border: 1px solid #edd8da; border-radius: 32px 32px 32px 10px;
+  background: #fffdf9; box-shadow: 0 6px 0 #f2e4dd, 0 20px 60px #98657514;
+}
+.reta-entry-logo { display: block; margin: 0 auto 12px; object-fit: contain; }
+.reta-entry-greeting { margin-top: 20px; text-align: center; font-size: 22px; font-weight: 700; color: #805762; }
+.reta-entry-tagline { text-align: center; margin-top: 8px; font-size: 13px; color: #a07882; letter-spacing: .08em; }
+.reta-login .reta-entry-card > p:not(.reta-entry-tagline) { text-align: center; }
+.reta-entry input { background: #fff; border-color: #ecdce0; min-height: 48px; transition: border-color .2s, box-shadow .2s; }
+.reta-entry input:focus { border-color: #c87c91; box-shadow: 0 0 0 4px #f9e9ee; }
+.reta-entry button { transition: background-color .2s, box-shadow .2s; }
+.reta-entry button:focus-visible { outline: 3px solid #c87c91; outline-offset: 3px; }
+.reta-entry button[class~="bg-gray-900"], .reta-entry button[class~="bg-[#bf596f]"] {
+  background: #b96e85; box-shadow: 0 4px 0 #97596d; border-radius: 16px;
+}
+.reta-entry button[class~="bg-gray-900"]:hover, .reta-entry button[class~="bg-[#bf596f]"]:hover { background: #a95f76; }
+.reta-login button[class~="bg-[#fffaf0]"] { background: #f7eceb; color: #986273; }
+.reta-group-entry h1 { color: #805762; font-size: 26px; }
+.reta-group-entry .reta-entry-card > div > section { border-color: #ead8dc; background: #fff4f5; border-radius: 24px 24px 24px 8px; }
+.reta-group-entry .reta-entry-card > div > section:nth-child(2) { background: #f4f6ed; border-color: #dde4ce; }
+@media (prefers-reduced-motion: reduce) { .reta-entry input, .reta-entry button { transition: none; } }
