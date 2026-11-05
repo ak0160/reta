@@ -6401,7 +6401,7 @@ if (readingSessionIdRef.current) {
 
             <div className="reta-reading-map border-t border-gray-100 px-6 py-5">
               <div className="reta-map-heading mb-3 flex items-center justify-between text-xs text-gray-500">
-                <span>ReTAの足あと</span>
+                <span>Readhead</span>
 
                 <span>
                   {currentParagraphIndex + 1} / {readingUnits.length} 区切り
