@@ -2,6 +2,7 @@
 
 import { parseProofreadText, resolveTextReadingFormat, type TextReadingFormat } from "./text-reading-format";
 import ReadingMapReactions from "./reading-map-reactions";
+import ReaderNameBadges from "./reader-name-badges";
 import AutoScrollControls from "./auto-scroll-controls";
 import { autoScrollPixelsPerSecond } from "./auto-scroll-speed";
 import { useAutoScrollPreferences } from "./use-auto-scroll-preferences";
@@ -6356,7 +6357,7 @@ if (readingSessionIdRef.current) {
 
                             {readerMode === "shared" &&
                               readersInParagraph.length > 0 && (
-                                <div className="reader-follow-badges marker-reader-badges normal-marker-reader-badges">
+                                <ReaderNameBadges className="reader-follow-badges marker-reader-badges normal-marker-reader-badges">
                                   {readersInParagraph.map((reader) => (
                                     <span
                                       key={reader.id}
@@ -6370,7 +6371,7 @@ if (readingSessionIdRef.current) {
                                       {getDisplayName(reader.name)}
                                     </span>
                                   ))}
-                                </div>
+                                </ReaderNameBadges>
                               )}
                           </>
                         ) : (
@@ -6414,7 +6415,7 @@ if (readingSessionIdRef.current) {
 
                                   {readerMode === "shared" &&
                                     readersHere.length > 0 && (
-                                      <div className="reader-follow-badges marker-reader-badges grouped-marker-reader-badges">
+                                      <ReaderNameBadges className="reader-follow-badges marker-reader-badges grouped-marker-reader-badges">
                                         {readersHere.map((reader) => (
                                           <span
                                             key={reader.id}
@@ -6428,7 +6429,7 @@ if (readingSessionIdRef.current) {
                                             {getDisplayName(reader.name)}
                                           </span>
                                         ))}
-                                      </div>
+                                      </ReaderNameBadges>
                                     )}
                                 </div>
                               );

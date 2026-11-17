@@ -270,14 +270,18 @@ rt {
   transform: none !important;
 }
 
-.normal-marker-reader-badges {
-  top: -2.8rem !important;
-  right: 0.6rem !important;
-}
-
-.grouped-marker-reader-badges {
-  top: 0.4rem !important;
-  right: 1rem !important;
+/* Anchor the whole name stack above the highlight's top-right corner.
+   Bottom positioning keeps the gap constant even when names/paragraphs vary. */
+.reader-follow-badges.normal-marker-reader-badges,
+.reader-follow-badges.grouped-marker-reader-badges {
+  top: auto !important;
+  bottom: calc(100% + 0.5rem);
+  right: 0 !important;
+  max-width: none;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
 .horizontal-marker-reader-badges {
@@ -417,18 +421,6 @@ rt {
 }
 /* Mobile / tablet bookmark visibility */
 @media (max-width: 1023px) {
-  .normal-marker-reader-badges {
-    top: -1.2rem !important;
-    right: 0.35rem !important;
-    left: auto !important;
-  }
-
-  .grouped-marker-reader-badges {
-    top: 0.35rem !important;
-    right: 0.35rem !important;
-    left: auto !important;
-  }
-
   .horizontal-marker-reader-badges {
     top: 0.35rem !important;
     left: 0.35rem !important;
@@ -2190,3 +2182,21 @@ rt {
 .reta-group-entry .reta-entry-card > div > section { border-color: #ead8dc; background: #fff4f5; border-radius: 24px 24px 24px 8px; }
 .reta-group-entry .reta-entry-card > div > section:nth-child(2) { background: #f4f6ed; border-color: #dde4ce; }
 @media (prefers-reduced-motion: reduce) { .reta-entry input, .reta-entry button { transition: none; } }
+
+/* Reserve 50px above vertical text/highlights in both reading modes.
+   Preserve the existing bottom edge and bottom padding. */
+.reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reader-body {
+  padding-top: calc(0.5rem + 50px);
+  padding-bottom: 0.5rem;
+}
+
+/* Portal names escape the scroll viewport's clipping without changing text flow. */
+.reader-follow-badges.reader-name-overlay {
+  position: fixed;
+  top: var(--reader-name-top, 0px) !important;
+  left: var(--reader-name-left, 0px) !important;
+  right: auto !important;
+  bottom: auto;
+  max-width: calc(100vw - 1rem);
+  z-index: 1000;
+}

@@ -1,6 +1,12 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import {
+  browserLocalPersistence,
+  browserSessionPersistence,
+  getAuth,
+  indexedDBLocalPersistence,
+  initializeAuth,
+} from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD2JQYtC1bMPo0PYuHOfcf6q7cvmRpuwNM",
@@ -16,5 +22,25 @@ const app = initializeApp(firebaseConfig);
 // Firestore
 export const db = getFirestore(app);
 
-// Authentication
-export const auth = getAuth(app);
+// ReTA uses email/password sign-in only. Avoid the unused redirect resolver,
+// which proactively waits for an external auth iframe on Safari/iOS.
+// Keep getAuth's persistence order so existing sessions remain available.
+function initializeReadingAuth() {
+  try {
+    return initializeAuth(app, {
+      persistence: [
+        indexedDBLocalPersistence,
+        browserLocalPersistence,
+        browserSessionPersistence,
+      ],
+    });
+  } catch (error) {
+    // Fast Refresh can retain an Auth instance created before this module reloads.
+    if ((error as { code?: string }).code === "auth/already-initialized") {
+      return getAuth(app);
+    }
+    throw error;
+  }
+}
+
+export const auth = initializeReadingAuth();
