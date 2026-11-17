@@ -126,7 +126,7 @@ rt {
 
 .normal-reading-unit.is-active {
   position: relative !important;
-  background: rgba(254, 240, 138, 0.38) !important;
+  background: rgba(254, 240, 138, 0.28) !important;
   border-radius: 1.4rem !important;
 }
 
@@ -192,7 +192,7 @@ rt {
 }
 
 .reading-unit.is-active {
-  background: rgba(254, 240, 138, 0.38) !important;
+  background: rgba(254, 240, 138, 0.28) !important;
   border-radius: 1.4rem !important;
 }
 
@@ -241,7 +241,7 @@ rt {
 }
 
 .reading-heading-unit.is-active {
-  background: rgba(254, 240, 138, 0.38) !important;
+  background: rgba(254, 240, 138, 0.28) !important;
 }
 
 /* 蜿ょ刈閠�錐譛ｭ */
@@ -373,7 +373,7 @@ rt {
 }
 
 .horizontal-reading-unit.is-active {
-  background: rgba(254, 240, 138, 0.38) !important;
+  background: rgba(254, 240, 138, 0.28) !important;
   border-radius: 1.4rem !important;
   box-shadow: none !important;
 }
