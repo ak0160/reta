@@ -1,5 +1,6 @@
 "use client";
 
+import { parseProofreadText, resolveTextReadingFormat, type TextReadingFormat } from "./text-reading-format";
 import ReadingMapReactions from "./reading-map-reactions";
 import AutoScrollControls from "./auto-scroll-controls";
 import { autoScrollPixelsPerSecond } from "./auto-scroll-speed";
@@ -150,6 +151,7 @@ type CurrentWork = {
 };
 
 type Paragraph = {
+  preserveWhitespace?: boolean;
   text: string;
   isHeading?: boolean;
 };
@@ -850,9 +852,23 @@ function isChapterHeading(line: string) {
   return false;
 }
 
-function decorateText(text: string) {
+function uprightVerticalDigits(html: string) {
+  // Only decorate text nodes: keep generated ruby/button tags, attributes and entities intact.
+  return html
+    .split(/(<(?:[^>"']|"[^"]*"|'[^']*')*>|&(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);)/g)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        // One horizontal 1em cell per digit keeps upright glyphs from overlapping in vertical lines.
+        : part.replace(/[0-9]/g, '<span style="display: inline-block; writing-mode: horizontal-tb; text-orientation: upright; inline-size: 1em; block-size: 1em; line-height: 1em; letter-spacing: normal; text-align: center; vertical-align: baseline">$&</span>'),
+    )
+    .join("");
+}
+
+function decorateText(text: string, vertical = false) {
   const rubyConverted = convertAozoraRuby(text);
-  return highlightDictionaryWords(rubyConverted);
+  const decorated = highlightDictionaryWords(rubyConverted);
+  return vertical ? uprightVerticalDigits(decorated) : decorated;
 }
 
 function preserveAozoraEmphasis(line: string) {
@@ -1056,8 +1072,8 @@ function cleanAozoraText(
 const SENTENCE_TERMINATOR_CHARS = new Set(["。"]);
 const SENTENCE_CLOSING_MARKS = new Set(["」", "』", "】", "）", ")"]);
 
-function splitIntoSentences(rawText: string) {
-  const trimmedText = rawText.trim();
+function splitIntoSentences(rawText: string, preserveWhitespace = false) {
+  const trimmedText = preserveWhitespace ? rawText : rawText.trim();
 
   if (!trimmedText) return [];
 
@@ -1065,7 +1081,7 @@ function splitIntoSentences(rawText: string) {
   let buffer = "";
 
   const pushSentence = () => {
-    const sentence = buffer.trim();
+    const sentence = preserveWhitespace ? buffer : buffer.trim();
 
     if (sentence) {
       sentences.push(sentence);
@@ -1094,7 +1110,9 @@ function splitIntoSentences(rawText: string) {
 
   }
 
-  if (buffer.trim()) {
+  if (preserveWhitespace && buffer && !buffer.trim() && sentences.length) {
+    sentences[sentences.length - 1] += buffer;
+  } else if (buffer.trim()) {
     pushSentence();
   }
 
@@ -1121,7 +1139,7 @@ function buildReadingUnits(paragraphs: Paragraph[]) {
       return;
     }
 
-    const sentences = splitIntoSentences(paragraph.text);
+    const sentences = splitIntoSentences(paragraph.text, paragraph.preserveWhitespace);
 
     for (
       let sentenceIndex = 0;
@@ -1171,6 +1189,7 @@ type RegisteredTextWork = {
 };
 
 type StoredTextWork = {
+  readingFormat?: TextReadingFormat;
   workId: string;
   type: "text";
   title: string;
@@ -1514,6 +1533,7 @@ export default function Home() {
   const deletedTextWorkIdsRef = useRef(new Set<string>());
   const isTextWorkSaveBlocked = (workId: string) =>
     deletingTextWorkIdRef.current === workId || deletedTextWorkIdsRef.current.has(workId);
+  const [textReadingFormat, setTextReadingFormat] = useState<TextReadingFormat>("legacy");
   const [textUploadTitle, setTextUploadTitle] = useState("");
   const [textUploadAuthor, setTextUploadAuthor] = useState("");
   const [textUploadContent, setTextUploadContent] = useState("");
@@ -2529,12 +2549,9 @@ void saveReadingEvent("layout_change").catch((error) => {
       sourceUrl: "",
     };
 
-    const cleanedParagraphs = cleanAozoraText(
-      data.rawText,
-      title,
-      author,
-      "ocr",
-    );
+    const cleanedParagraphs = resolveTextReadingFormat(data.readingFormat) === "proofread-v1"
+      ? parseProofreadText(data.rawText)
+      : cleanAozoraText(data.rawText, title, author, "ocr");
 
     if (cleanedParagraphs.length === 0) {
       throw new Error("TXT本文を整形できませんでした");
@@ -2856,9 +2873,11 @@ void saveReadingEvent("layout_change").catch((error) => {
 
     const title = textUploadTitle.trim();
     const author = textUploadAuthor.trim();
-    const rawText = textUploadContent.trim();
+    const rawText = textReadingFormat === "proofread-v1"
+      ? textUploadContent
+      : textUploadContent.trim();
 
-    if (!rawText) {
+    if (!rawText.trim()) {
       setTextUploadError("TXTファイルを選択してください");
       return;
     }
@@ -2880,6 +2899,7 @@ void saveReadingEvent("layout_change").catch((error) => {
       const workId = createTextWorkId();
 
       const storedWork: StoredTextWork = {
+        readingFormat: textReadingFormat,
         workId,
         type: "text",
         title,
@@ -2923,6 +2943,7 @@ void saveReadingEvent("layout_change").catch((error) => {
 
       await openStoredTextWork(workId, true);
 
+      setTextReadingFormat("legacy");
       setTextUploadContent("");
       setTextUploadFileName("");
       setTextUploadTitle("");
@@ -6062,6 +6083,25 @@ if (readingSessionIdRef.current) {
                       />
                     </label>
 
+                    <label className="grid gap-2">
+                      <span className="text-xs font-bold text-gray-600">TXTの読み込み方式</span>
+                      <select
+                        value={textReadingFormat}
+                        onChange={(event) => setTextReadingFormat(resolveTextReadingFormat(event.target.value))}
+                        disabled={isSavingTextWork}
+                        className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm"
+                      >
+                        <option value="legacy">従来の整形（OCR・青空文庫）</option>
+                        <option value="proofread-v1">校正済みTXT（段落・空白を保持）</option>
+                      </select>
+                      {textReadingFormat === "proofread-v1" && (
+                        <span className="text-xs text-gray-600">
+                          先頭2行は作品名・著者名です。空行で段落を区切り、英文の空白やルビを保持します。
+                          登録後もこの方式で開きます。
+                        </span>
+                      )}
+                    </label>
+
                     {textUploadError && (
                       <p className="text-xs font-bold text-red-500">
                         {textUploadError}
@@ -6223,6 +6263,7 @@ if (readingSessionIdRef.current) {
                       >
                         <span
                           className="horizontal-reading-unit-inner"
+                          style={paragraph.preserveWhitespace ? { whiteSpace: "pre-wrap" } : undefined}
                           dangerouslySetInnerHTML={{
                             __html: decorateText(paragraph.text),
                           }}
@@ -6307,8 +6348,9 @@ if (readingSessionIdRef.current) {
                                   : ""
                               }`}
                               {...wordSelectHandlers}
+                              style={paragraph.preserveWhitespace ? { whiteSpace: "pre-wrap" } : undefined}
                               dangerouslySetInnerHTML={{
-                                __html: decorateText(paragraph.text),
+                                __html: decorateText(paragraph.text, true),
                               }}
                             />
 
@@ -6364,8 +6406,9 @@ if (readingSessionIdRef.current) {
                                 >
                                   <span
                                     className="reading-unit-inner"
+                                    style={paragraph.preserveWhitespace ? { whiteSpace: "pre-wrap" } : undefined}
                                     dangerouslySetInnerHTML={{
-                                      __html: decorateText(unit.html),
+                                      __html: decorateText(unit.html, true),
                                     }}
                                   />
 

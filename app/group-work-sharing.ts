@@ -1,3 +1,4 @@
+import { resolveTextReadingFormat } from "./text-reading-format";
 import { collection, doc, getDocFromServer, runTransaction, setDoc, waitForPendingWrites, type Firestore } from "firebase/firestore";
 
 export type SharedTextWork = {
@@ -103,6 +104,7 @@ export async function saveSharedTextWork(db: Firestore, uid: string, groupId: st
     const now = Date.now();
     transaction.set(doc(db, "works", personalWorkId), {
       workId: personalWorkId, type: "text", title: data.title, author: data.author,
+      readingFormat: resolveTextReadingFormat(data.readingFormat),
       rawText: data.rawText, sourceUrl: "", ownerId: uid, sourceWorkId: workId, updatedAt: now,
     });
     transaction.set(doc(db, "readingProgress", `${uid}_${personalWorkId}`), {

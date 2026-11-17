@@ -1,0 +1,22 @@
+{
+  "dashi.txt": {
+    "paragraphs": 15,
+    "units": 33,
+    "sha": "941ddb9981f1106f645e5e512cf91cb8777e33378fda7c02800606dc883879b8"
+  },
+  "hakuchumu.txt": {
+    "paragraphs": 50,
+    "units": 78,
+    "sha": "f1ce771972fbcfe1a5d7e1fed21659501c383cd42cf12fef4743185ff40863b3"
+  },
+  "megachurch.txt": {
+    "paragraphs": 938,
+    "units": 1043,
+    "sha": "66238e41f25ba3a8453d4676e651de92235aa125f3c80261d601adf16e251f47"
+  },
+  "wagahaiwa_nekodearu.txt": {
+    "paragraphs": 2188,
+    "units": 5227,
+    "sha": "35b16cb30da7ebdcbef7062f03e75a37d2a9c6d0c72e5d41b0602989871c03b6"
+  }
+}
