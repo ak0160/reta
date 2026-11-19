@@ -1,6 +1,9 @@
 .page {
+  display: flex;
   min-height: 100vh;
-  padding: clamp(2.5rem, 7vw, 5.5rem) 1.25rem 1.5rem;
+  min-height: 100dvh;
+  align-items: center;
+  padding: clamp(1.25rem, 3.5vh, 2.75rem) 1.25rem 1.1rem;
   background:
     radial-gradient(ellipse at 10% 0%, #f8e5e5 0, transparent 42%),
     radial-gradient(ellipse at 100% 100%, #faeeee 0, transparent 36%),
@@ -9,12 +12,12 @@
 }
 
 .container {
-  width: min(100%, 58rem);
+  width: min(100%, 54rem);
   margin: 0 auto;
 }
 
 .header {
-  margin: 0 auto 2.5rem;
+  margin: 0 auto 1.15rem;
   text-align: center;
 }
 
@@ -22,69 +25,70 @@
   display: block;
   width: 2.65rem;
   height: 2.65rem;
-  margin: 0 auto 1rem;
+  margin: 0 auto 0.55rem;
   border-radius: 0.45rem;
   object-fit: contain;
 }
 
 .eyebrow {
-  margin: 0 0 0.45rem;
+  margin: 0 0 0.2rem;
   color: #986273;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 600;
-  letter-spacing: 0.19em;
+  letter-spacing: 0.2em;
 }
 
 .header h1 {
   margin: 0;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(2.6rem, 7vw, 3.6rem);
+  font-size: clamp(2.15rem, 5vw, 2.8rem);
   font-weight: 500;
   letter-spacing: 0.025em;
-  line-height: 1.1;
+  line-height: 1.04;
 }
 
 .subtitle {
-  margin: 0.75rem 0 0;
+  margin: 0.38rem 0 0;
   color: #55464a;
   font-family: "Noto Serif JP", "Yu Mincho", serif;
-  font-size: clamp(1rem, 2.5vw, 1.2rem);
+  font-size: clamp(0.96rem, 2vw, 1.08rem);
   font-weight: 500;
   letter-spacing: 0.08em;
 }
 
 .intro {
-  margin: 1rem 0 0;
+  max-width: 42rem;
+  margin: 0.55rem auto 0;
   color: #766a6b;
-  font-size: 0.88rem;
-  line-height: 1.8;
+  font-size: 0.78rem;
+  line-height: 1.7;
 }
 
 .steps {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.7rem;
 }
 
 .card {
   display: flex;
-  min-height: 14rem;
+  min-width: 0;
+  min-height: 7.1rem;
   flex-direction: column;
-  padding: 1.35rem 1.45rem 1.25rem;
+  padding: 0.78rem 1.05rem 0.82rem;
   border: 1px solid #eee3df;
   border-radius: 0.85rem;
-  background: rgba(255, 253, 250, 0.9);
-  box-shadow: 0 5px 18px rgba(113, 69, 78, 0.035);
+  background: rgba(255, 253, 250, 0.94);
+  box-shadow: 0 4px 15px rgba(113, 69, 78, 0.045);
   color: inherit;
   text-decoration: none;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
 }
 
 .card:hover {
   transform: translateY(-2px);
   border-color: #dfa4af;
   background: #fff8fa;
-  box-shadow: 0 10px 25px rgba(113, 69, 78, 0.08);
+  box-shadow: 0 8px 21px rgba(113, 69, 78, 0.09);
 }
 
 .card:focus-visible {
@@ -92,24 +96,28 @@
   outline-offset: 3px;
 }
 
-.cardTop {
+.cardHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1rem;
+  gap: 0.75rem;
+  margin-bottom: 0.38rem;
 }
 
-.stepNumber {
-  color: #a1767f;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
+.cardEyebrow {
+  margin: 0;
+  color: #986273;
+  font-size: 0.57rem;
+  font-weight: 600;
+  letter-spacing: 0.17em;
+  line-height: 1.4;
 }
 
 .iconWrap {
   display: grid;
-  width: 2.65rem;
-  height: 2.65rem;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
   place-items: center;
   border-radius: 50%;
   background: #fff0f3;
@@ -117,102 +125,145 @@
 }
 
 .icon {
-  width: 1.35rem;
-  height: 1.35rem;
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 .card h2 {
   margin: 0;
   font-family: "Noto Serif JP", "Yu Mincho", serif;
-  font-size: 1.05rem;
+  font-size: 0.98rem;
   font-weight: 600;
   letter-spacing: 0.035em;
-  line-height: 1.55;
+  line-height: 1.5;
 }
 
 .description {
-  margin: 0.45rem 0 1.15rem;
+  margin: 0.18rem 0 0.48rem;
   color: #706568;
-  font-size: 0.84rem;
-  line-height: 1.8;
+  font-size: 0.73rem;
+  line-height: 1.65;
 }
 
 .action {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.42rem;
   margin-top: auto;
   color: #a6445a;
-  font-size: 0.8rem;
+  font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 0.025em;
+  letter-spacing: 0.02em;
 }
 
 .arrow {
-  width: 1rem;
-  height: 1rem;
-  transition: transform 160ms ease;
+  width: 0.9rem;
+  height: 0.9rem;
+  transition: transform 180ms ease;
 }
 
 .card:hover .arrow {
   transform: translateX(3px);
 }
 
+.featured {
+  border-color: #e8bbc5;
+  background: #f5dce2;
+  box-shadow: 0 7px 19px rgba(166, 68, 90, 0.1);
+  color: #713a49;
+}
+
+.featured:hover {
+  border-color: #dca4b1;
+  background: #f0cfd8;
+  box-shadow: 0 10px 24px rgba(166, 68, 90, 0.15);
+}
+
+.featured:focus-visible {
+  outline-color: #a6445a;
+}
+
+.featured .cardEyebrow,
+.featured .description {
+  color: #79515b;
+}
+
+.featured h2,
+.featured .cardMessage,
+.featured .action {
+  color: #713a49;
+}
+
+.featured .iconWrap {
+  background: rgba(255, 253, 250, 0.62);
+  color: #a6445a;
+}
+
+.cardMessage {
+  margin: 0.1rem 0 0;
+  color: inherit;
+  font-family: "Noto Serif JP", "Yu Mincho", serif;
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0.045em;
+}
+
+.afterReading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.7rem;
+}
+
 .footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.8rem;
-  margin-top: 2.6rem;
+  gap: 0.7rem;
+  margin-top: 1rem;
   color: #8d777a;
-  font-size: 0.73rem;
+  font-size: 0.66rem;
   letter-spacing: 0.035em;
   text-align: center;
 }
 
 .footerDivider {
   width: 1px;
-  height: 0.85rem;
+  height: 0.75rem;
   background: #ead8dc;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 639px) {
   .page {
-    padding: 2.5rem 1rem 1.25rem;
+    align-items: flex-start;
+    padding: 1.65rem 0.9rem 1rem;
   }
 
   .header {
-    margin-bottom: 1.8rem;
+    margin-bottom: 1.1rem;
   }
 
-  .steps {
+  .intro {
+    max-width: 28rem;
+  }
+
+  .afterReading {
     grid-template-columns: 1fr;
-    gap: 0.75rem;
   }
 
   .card {
     min-height: 0;
-    padding: 1.1rem 1.15rem 1rem;
+    padding: 0.82rem 0.95rem;
   }
 
-  .cardTop {
-    margin-bottom: 0.7rem;
-  }
-
-  .iconWrap {
-    width: 2.35rem;
-    height: 2.35rem;
-  }
-
-  .description {
-    margin-bottom: 0.95rem;
+  .afterReading .card {
+    min-height: 7.1rem;
   }
 
   .footer {
     flex-wrap: wrap;
-    gap: 0.45rem 0.65rem;
-    margin-top: 2rem;
-    font-size: 0.68rem;
+    gap: 0.4rem 0.6rem;
+    margin-top: 0.9rem;
+    font-size: 0.63rem;
   }
 }
 
