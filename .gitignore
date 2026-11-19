@@ -27,6 +27,8 @@
 # Local source snapshots and working backups (keep the files on disk).
 *.bak
 *.bak.*
+*.backup
+*.backup.*
 *.before
 *.before.*
 *.before-*
@@ -37,6 +39,8 @@
 # Local OCR and book-proofreading materials; not required by the app runtime.
 /book/
 /docs/research/
+/functions/lib/考察する若者たち_PDF照合報告.md
+/functions/lib/考察する若者たち_全文_日本語修正版のコピー.txt
 
 # debug
 npm-debug.log*
