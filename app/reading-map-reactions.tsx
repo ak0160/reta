@@ -3,7 +3,9 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 type MapReaction = {
+  id: string;
   paragraphIndex: number;
+  participantId: string;
   participantName: string;
   emoji: string;
   comment: string;
@@ -108,7 +110,12 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
         <h3 id={`${id}-title`}>{selected + 1}区切り目 <span>· {active.length}件</span></h3>
         <button ref={closeButton} type="button" onClick={() => close(true)} aria-label="リアクションを閉じる">×</button>
       </div>
-      <ul>{active.map((reaction, index) => <li key={`${reaction.createdAt}-${index}`}>
+      <ul>{active.map((reaction, index) => <li
+        key={reaction.id || `${reaction.createdAt}-${index}`}
+        data-reaction-id={reaction.id}
+        data-reaction-sender-id={reaction.participantId}
+        data-reaction-paragraph-index={reaction.paragraphIndex}
+      >
         <div className="reta-map-reaction-author"><span className="reta-map-reaction-emoji">{reaction.emoji}</span><span>{reaction.participantName || "利用者"}</span></div>
         {reaction.comment.trim() && <p>{reaction.comment}</p>}
       </li>)}</ul>

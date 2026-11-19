@@ -19,6 +19,40 @@ type ReadingEvent = {
   groupId?: string;
   reactionEmoji?: string;
   reactionComment?: string;
+  action?: string;
+  workId?: string;
+  fromParagraphIndex?: number;
+  toParagraphIndex?: number;
+  targetParagraphIndex?: number;
+  movementDistance?: number;
+  bookmarkSlot?: number;
+  lookupStartedAt?: number;
+  lookupEndedAt?: number;
+  operationStartedAt?: number;
+  operationEndedAt?: number;
+  durationMs?: number;
+  targetUserId?: string;
+  targetPosition?: number;
+  reactionId?: string;
+  senderId?: string;
+  recipientId?: string;
+  firstDisplay?: boolean;
+  speed?: number;
+  speedBefore?: number;
+  speedAfter?: number;
+  hiddenAt?: number;
+  resumedAt?: number;
+  hiddenDurationMs?: number;
+  fromMode?: string;
+  toMode?: string;
+  fromLayout?: string;
+  toLayout?: string;
+  viewportWidth?: number;
+  viewportHeight?: number;
+  previousViewportWidth?: number;
+  previousViewportHeight?: number;
+  orientation?: string;
+  previousOrientation?: string;
 };
 
 const getEventLabel = (type?: string) => {
@@ -45,6 +79,26 @@ const getEventLabel = (type?: string) => {
       return "共有読みへ変更";
     case "reader_mode_solo":
       return "一人読みへ変更";
+    case "bookmark_add":
+      return "しおり追加";
+    case "bookmark_delete":
+      return "しおり削除";
+    case "bookmark_jump":
+      return "しおり移動";
+    case "dictionary_lookup":
+      return "辞書利用";
+    case "reader_name_display":
+      return "他者の名前表示";
+    case "reaction_display":
+      return "リアクション画面表示（閲覧確認ではない）";
+    case "reading_backtrack":
+      return "読書位置の後退";
+    case "readhead_move":
+      return "読書位置の移動操作";
+    case "auto_scroll_speed_change":
+      return "自動スクロール速度変更";
+    case "viewport_change":
+      return "画面サイズ・向き変更";
     default:
       return type || "不明なイベント";
   }
@@ -105,6 +159,61 @@ const formatDuration = (durationMs?: number) => {
   }
 
   return `${minutes}分${seconds}秒`;
+};
+
+const getActionLabel = (action?: string) => {
+  const labels: Record<string, string> = {
+    name_visible_in_reading_area: "本文表示領域に名前が表示",
+    reaction_rendered_on_screen: "画面内に表示",
+    speed_change: "速度調整",
+    scroll_backward: "スクロールによる後退",
+    reading_mode_change: "読書方法の切替",
+    layout_change: "レイアウト切替",
+    already_active_at_session_start: "セッション開始時に再生中",
+    bookmark_add: "しおり追加",
+    bookmark_delete: "しおり削除",
+    bookmark_jump: "しおりから移動",
+    paragraph_click: "段落クリック",
+    return_to_position: "元の位置へ戻る",
+    keyboard_arrowleft: "キーボードで次へ移動",
+    keyboard_arrowright: "キーボードで前へ移動",
+    keyboard_arrowup: "キーボードで前へ移動",
+    keyboard_arrowdown: "キーボードで次へ移動",
+    resize: "画面サイズ変更",
+    orientation_change: "端末の向き変更",
+  };
+  return action ? labels[action] ?? action : "";
+};
+
+const getEventDetailsLabel = (event: ReadingEvent) => {
+  const details: string[] = [];
+  const actionLabel = getActionLabel(event.action);
+  if (actionLabel) details.push(actionLabel);
+  if (event.fromParagraphIndex !== undefined || event.toParagraphIndex !== undefined) {
+    details.push(`${event.fromParagraphIndex ?? "?"} → ${event.toParagraphIndex ?? "?"}段落`);
+  }
+  if (event.targetParagraphIndex !== undefined) details.push(`対象 ${event.targetParagraphIndex}段落`);
+  if (event.targetUserId) details.push(`対象UID ${event.targetUserId}`);
+  if (event.reactionId) details.push(`リアクションID ${event.reactionId}`);
+  if (event.senderId || event.recipientId) details.push(`送信者 ${event.senderId ?? "?"} → 受信者 ${event.recipientId ?? "?"}`);
+  if (event.bookmarkSlot !== undefined) details.push(`しおり ${event.bookmarkSlot}`);
+  if (event.speedBefore !== undefined || event.speedAfter !== undefined) {
+    details.push(`速度 ${event.speedBefore ?? "?"} → ${event.speedAfter ?? "?"}`);
+  } else if (event.speed !== undefined) details.push(`速度 ${event.speed}`);
+  if (event.durationMs !== undefined) details.push(`所要 ${formatDuration(event.durationMs)}`);
+  if (event.operationStartedAt !== undefined || event.operationEndedAt !== undefined) {
+    details.push(`操作時刻 ${formatDateTime(event.operationStartedAt)} → ${formatDateTime(event.operationEndedAt)}`);
+  }
+  if (event.hiddenAt !== undefined || event.resumedAt !== undefined) {
+    details.push(`タブ ${formatDateTime(event.hiddenAt)} → ${formatDateTime(event.resumedAt)}`);
+  }
+  if (event.hiddenDurationMs !== undefined) details.push(`非表示 ${formatDuration(event.hiddenDurationMs)}`);
+  if (event.fromLayout || event.toLayout) details.push(`レイアウト ${event.fromLayout ?? "?"} → ${event.toLayout ?? "?"}`);
+  if (event.fromMode || event.toMode) details.push(`読書方法 ${event.fromMode ?? "?"} → ${event.toMode ?? "?"}`);
+  if (event.viewportWidth !== undefined && event.viewportHeight !== undefined) {
+    details.push(`画面 ${event.viewportWidth}×${event.viewportHeight} (${event.orientation ?? "向き不明"})`);
+  }
+  return details.join(" / ");
 };
 
 function downloadFile(rows: unknown[][], filename: string) {
@@ -212,6 +321,11 @@ export default function ExperimentLogsPage() {
       "日時（日本時間）", "日時（Unixミリ秒）", "参加者", "参加者UID", "イベント種類", "イベント種別コード",
       "イベントID", "セッションID", "作品名", "著者", "作品ID", "作品種類", "作品URL", "読書モード",
       "段落インデックス（0始まり）", "進捗（%）", "レイアウト", "グループID", "リアクション", "コメント",
+      "操作", "移動元段落", "移動先段落", "対象段落", "移動距離", "しおり番号", "辞書開始時刻", "辞書終了時刻",
+      "操作開始時刻（Unixミリ秒）", "操作終了時刻（Unixミリ秒）", "所要時間ms", "対象参加者UID", "対象読書位置", "リアクションID", "送信者UID",
+      "受信者UID", "セッション内初回表示", "速度", "変更前速度", "変更後速度", "タブ非表示時刻（Unixミリ秒）", "タブ復帰時刻（Unixミリ秒）",
+      "非表示時間ms", "変更前読書方法", "変更後読書方法", "変更前レイアウト", "変更後レイアウト", "画面幅", "画面高さ",
+      "変更前画面幅", "変更前画面高さ", "画面向き", "変更前画面向き",
       "セッション開始日時（日本時間）", "セッション終了日時（日本時間）", "イベント記録（JSON）", "セッション記録（JSON）",
     ];
     const rows = events.map(event => [
@@ -219,7 +333,14 @@ export default function ExperimentLogsPage() {
       getEventLabel(event.type), event.type, event.id, event.sessionId ?? selectedSession.id,
       selectedSession.title, selectedSession.author, selectedSession.workId, selectedSession.workType,
       selectedSession.sourceUrl, selectedSession.mode, event.paragraphIndex, event.percent, event.layoutMode,
-      event.groupId, event.reactionEmoji, event.reactionComment, csvDateTime(selectedSession.startedAt),
+      event.groupId, event.reactionEmoji, event.reactionComment,
+      event.action, event.fromParagraphIndex, event.toParagraphIndex, event.targetParagraphIndex, event.movementDistance,
+      event.bookmarkSlot, event.lookupStartedAt, event.lookupEndedAt, event.operationStartedAt, event.operationEndedAt,
+      event.durationMs, event.targetUserId, event.targetPosition, event.reactionId, event.senderId, event.recipientId,
+      event.firstDisplay, event.speed, event.speedBefore, event.speedAfter, event.hiddenAt, event.resumedAt,
+      event.hiddenDurationMs, event.fromMode, event.toMode, event.fromLayout, event.toLayout, event.viewportWidth,
+      event.viewportHeight, event.previousViewportWidth, event.previousViewportHeight, event.orientation,
+      event.previousOrientation, csvDateTime(selectedSession.startedAt),
       csvDateTime(selectedSession.endedAt), JSON.stringify(event), JSON.stringify(selectedSession),
     ]);
     downloadFile([headers, ...rows], `reta-experiment-events-${selectedSession.id.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
@@ -333,7 +454,7 @@ export default function ExperimentLogsPage() {
       };
 
       const headers = [
-        "実験回ID", "アカウント名", "参加者UID", "セッションID",
+      "実験回ID", "アカウント名", "参加者UID", "セッションID",
         "作品名", "記録上の読書モード", "日時（日本時間）",
         "Unix時刻（ミリ秒）", "段落番号（0始まり）",
         "進捗率（%）", "レイアウト", "グループID"
@@ -350,12 +471,46 @@ export default function ExperimentLogsPage() {
       ]);
 
       addSheet("操作履歴", [
-        [...headers, "操作", "イベント種別", "絵文字", "コメント", "イベントID"],
+        [...headers, "操作", "イベント種別", "移動元段落", "移動先段落", "対象段落", "移動距離", "しおり番号",
+          "辞書開始時刻（Unixミリ秒）", "辞書終了時刻（Unixミリ秒）", "所要時間ms", "操作開始時刻（Unixミリ秒）", "操作終了時刻（Unixミリ秒）",
+          "対象参加者UID", "対象読書位置", "リアクションID",
+          "送信者UID", "受信者UID", "セッション内初回表示", "速度", "変更前速度", "変更後速度", "非表示時間ms",
+          "タブ非表示時刻（Unixミリ秒）", "タブ復帰時刻（Unixミリ秒）", "変更前読書方法", "変更後読書方法", "変更前レイアウト", "変更後レイアウト", "画面幅", "画面高さ", "画面向き",
+          "絵文字", "コメント", "イベントID"],
         ...sorted.filter(event => event.type !== "position")
           .map(event => [
             ...base(event),
             getEventLabel(event.type),
             event.type ?? "",
+            event.fromParagraphIndex ?? "",
+            event.toParagraphIndex ?? "",
+            event.targetParagraphIndex ?? "",
+            event.movementDistance ?? "",
+            event.bookmarkSlot ?? "",
+            event.lookupStartedAt ?? "",
+            event.lookupEndedAt ?? "",
+            event.durationMs ?? "",
+            event.operationStartedAt ?? "",
+            event.operationEndedAt ?? "",
+            event.targetUserId ?? "",
+            event.targetPosition ?? "",
+            event.reactionId ?? "",
+            event.senderId ?? "",
+            event.recipientId ?? "",
+            event.firstDisplay ?? "",
+            event.speed ?? "",
+            event.speedBefore ?? "",
+            event.speedAfter ?? "",
+            event.hiddenDurationMs ?? "",
+            event.hiddenAt ?? "",
+            event.resumedAt ?? "",
+            event.fromMode ?? "",
+            event.toMode ?? "",
+            event.fromLayout ?? "",
+            event.toLayout ?? "",
+            event.viewportWidth ?? "",
+            event.viewportHeight ?? "",
+            event.orientation ?? "",
             event.reactionEmoji ?? "",
             event.reactionComment ?? "",
             event.id
@@ -619,7 +774,7 @@ export default function ExperimentLogsPage() {
                       </span>
                     </div>
 
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                       <div className="rounded-2xl bg-gray-50 p-3">
                         <p className="text-xs font-bold text-gray-400">
                           開始日時
@@ -665,6 +820,15 @@ export default function ExperimentLogsPage() {
                           estimatedEndPercent !== null
                             ? `${estimatedEndPercent}%（推定）`
                             : `${session.endPercent ?? 0}%`}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-gray-50 p-3">
+                        <p className="text-xs font-bold text-gray-400">開始時の画面表示領域</p>
+                        <p className="mt-1 text-sm font-bold text-gray-700">
+                          {session.viewportWidth && session.viewportHeight
+                            ? `${session.viewportWidth} × ${session.viewportHeight}px（${session.orientation === "landscape" ? "横向き" : "縦向き"}）`
+                            : "記録なし（既存ログ）"}
                         </p>
                       </div>
                     </div>
@@ -817,6 +981,11 @@ export default function ExperimentLogsPage() {
                                   <p className="mt-1 text-xs text-gray-500">
                                     {formatDateTime(event.createdAt)}
                                   </p>
+                                  {getEventDetailsLabel(event) && (
+                                    <p className="mt-1 max-w-2xl break-all text-xs text-gray-500">
+                                      {getEventDetailsLabel(event)}
+                                    </p>
+                                  )}
                                 </div>
 
                                 <div className="text-right text-xs text-gray-500">

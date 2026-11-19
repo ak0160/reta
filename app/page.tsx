@@ -68,6 +68,7 @@ type Participant = {
 };
 
 type Reaction = {
+  id: string;
   storyKey: StoryKey | "";
   groupId: string;
   workId?: string;
@@ -112,6 +113,9 @@ type ReadingSession = {
   reactionCount: number;
   layoutMode: LayoutMode;
   autoScrollUsed: boolean;
+  viewportWidth: number;
+  viewportHeight: number;
+  orientation: "portrait" | "landscape";
 };
 
 type ReadingEventType =
@@ -125,7 +129,65 @@ type ReadingEventType =
   | "auto_scroll_on"
   | "auto_scroll_off"
   | "reader_mode_shared"
-  | "reader_mode_solo";
+  | "reader_mode_solo"
+  | "bookmark_add"
+  | "bookmark_delete"
+  | "bookmark_jump"
+  | "dictionary_lookup"
+  | "reader_name_display"
+  | "reaction_display"
+  | "reading_backtrack"
+  | "readhead_move"
+  | "auto_scroll_speed_change"
+  | "viewport_change";
+
+type ReadingEventDetails = {
+  workId?: string;
+  action?: string;
+  fromParagraphIndex?: number;
+  toParagraphIndex?: number;
+  targetParagraphIndex?: number;
+  movementDistance?: number;
+  bookmarkSlot?: number;
+  lookupStartedAt?: number;
+  lookupEndedAt?: number;
+  operationStartedAt?: number;
+  operationEndedAt?: number;
+  durationMs?: number;
+  targetUserId?: string;
+  targetPosition?: number;
+  reactionId?: string;
+  senderId?: string;
+  recipientId?: string;
+  firstDisplay?: boolean;
+  speed?: number;
+  speedBefore?: number;
+  speedAfter?: number;
+  hiddenAt?: number;
+  resumedAt?: number;
+  hiddenDurationMs?: number;
+  fromMode?: ReadingSessionMode;
+  toMode?: ReadingSessionMode;
+  fromLayout?: LayoutMode;
+  toLayout?: LayoutMode;
+  viewportWidth?: number;
+  viewportHeight?: number;
+  previousViewportWidth?: number;
+  previousViewportHeight?: number;
+  orientation?: "portrait" | "landscape";
+  previousOrientation?: "portrait" | "landscape";
+  reactionEmoji?: string;
+  reactionComment?: string;
+};
+
+type ReadingEventContext = {
+  sessionId?: string;
+  paragraphIndex?: number;
+  percent?: number;
+  layoutMode?: LayoutMode;
+  groupId?: string;
+  createdAt?: number;
+};
 
 type ReadingEvent = {
   sessionId: string;
@@ -136,9 +198,7 @@ type ReadingEvent = {
   percent: number;
   layoutMode: LayoutMode;
   groupId: string;
-  reactionEmoji?: string;
-  reactionComment?: string;
-};
+} & ReadingEventDetails;
 type LayoutMode = "normal" | "grouped" | "horizontal";
 type LoadMode = "preset" | "url" | "text";
 type WorkType = "preset" | "url" | "text";
@@ -609,8 +669,9 @@ function normalizeReadingGroup(
   };
 }
 
-function normalizeReaction(raw: Record<string, unknown>): Reaction {
+function normalizeReaction(raw: Record<string, unknown>, id: string): Reaction {
   return {
+    id,
     storyKey:
       typeof raw.storyKey === "string" ? (raw.storyKey as StoryKey) : "",
     groupId: typeof raw.groupId === "string" ? raw.groupId : "",
@@ -1631,11 +1692,28 @@ export default function Home() {
   const readingSessionIdRef = useRef<string | null>(null);
   const [mobileSessionPending, setMobileSessionPending] = useState(false);
   const [mobileSessionError, setMobileSessionError] = useState<string | null>(null);
+  const [readingSessionVersion, setReadingSessionVersion] = useState(0);
   const readingSessionStartedAtRef = useRef<number | null>(null);
   const readingSessionLastActiveAtRef = useRef<number | null>(null);
   const lastPositionLogAtRef = useRef(0);
   const readingSessionHiddenAtRef = useRef<number | null>(null);
   const readingSessionInactiveDurationRef = useRef(0);
+  const displayedReactionIdsRef = useRef(new Set<string>());
+  const activeVisibleNameKeysRef = useRef(new Set<string>());
+  const lastDictionaryActionRef = useRef<{ word: string; position: number; time: number } | null>(null);
+  const backtrackCandidateStartRef = useRef<number | null>(null);
+  const lastBacktrackLoggedAtRef = useRef(0);
+  const autoScrollStartedAtRef = useRef<number | null>(null);
+  const autoScrollRecordedForSessionRef = useRef(false);
+  const autoScrollSpeedRef = useRef(autoSpeed);
+  const pendingAutoScrollSpeedChangeRef = useRef<{
+    sessionId: string;
+    startedAt: number;
+    fromPosition: number;
+    speedBefore: number;
+    speedAfter: number;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null>(null);
   const didLoadLastReadingStateRef = useRef(false);
   const isRestoringProgressRef = useRef(false);
   const textLoadRequestIdRef = useRef(0);
@@ -2213,7 +2291,7 @@ export default function Home() {
 
     sessionIdRef.current = "";
     setSessionChecked(false);
-    setIsAutoScroll(false);
+    changeAutoScroll(false);
 
     try {
       await endReadingSession();
@@ -2309,8 +2387,11 @@ export default function Home() {
   const changeLayoutModeKeepingPosition = (nextMode: LayoutMode) => {
     if (nextMode === layoutModeRef.current) return;
 
-    setIsAutoScroll(false);
+    if (isAutoScroll) changeAutoScroll(false);
     setReturnIndex(null);
+
+    const fromLayout = layoutModeRef.current;
+    const fromPosition = currentParagraphIndexRef.current;
 
     const currentUnit = readingUnits[currentParagraphIndexRef.current];
     const currentParagraphIndex =
@@ -2343,7 +2424,14 @@ export default function Home() {
     setLayoutMode(nextMode);
 layoutModeRef.current = nextMode;
 
-void saveReadingEvent("layout_change").catch((error) => {
+void saveReadingEvent("layout_change", {
+  action: "layout_change",
+  workId: currentWorkRef.current.workId,
+  fromLayout,
+  toLayout: nextMode,
+  fromParagraphIndex: fromPosition,
+  toParagraphIndex: targetIndex,
+}, { paragraphIndex: targetIndex }).catch((error) => {
   console.error("レイアウト変更ログ保存失敗", error);
 });
   };
@@ -2456,7 +2544,7 @@ void saveReadingEvent("layout_change").catch((error) => {
     setSelectedWord("");
     setSearchWord("");
     setWikiMeaning("");
-    setIsAutoScroll(false);
+    changeAutoScroll(false);
     setReturnIndex(null);
 
     paragraphRefs.current = [];
@@ -2570,7 +2658,7 @@ void saveReadingEvent("layout_change").catch((error) => {
     setSelectedWord("");
     setSearchWord("");
     setWikiMeaning("");
-    setIsAutoScroll(false);
+    changeAutoScroll(false);
     setReturnIndex(null);
     paragraphRefs.current = [];
 
@@ -2673,7 +2761,7 @@ void saveReadingEvent("layout_change").catch((error) => {
         bookmarksRef.current = [null, null, null, null];
         setBookmarks([null, null, null, null]);
         setReturnIndex(null);
-        setIsAutoScroll(false);
+        changeAutoScroll(false);
         setSelectedWord("");
         setSearchWord("");
         setWikiMeaning("");
@@ -3127,7 +3215,7 @@ void saveReadingEvent("layout_change").catch((error) => {
       setLoadMode("text");
       setHasSelectedWork(true);
       hasSelectedWorkRef.current = true;
-      setIsAutoScroll(false);
+      changeAutoScroll(false);
       setReturnIndex(null);
       setSelectedWord("");
       setSearchWord("");
@@ -3211,7 +3299,7 @@ void saveReadingEvent("layout_change").catch((error) => {
     hasSelectedWorkRef.current = true;
     setIsLoadingAozora(true);
     setAozoraLoadError("");
-    setIsAutoScroll(false);
+    changeAutoScroll(false);
     setReturnIndex(null);
     isRestoringProgressRef.current = true;
 
@@ -3355,7 +3443,7 @@ void saveReadingEvent("layout_change").catch((error) => {
     await endReadingSession();
   }
 
-    setIsAutoScroll(false);
+    changeAutoScroll(false);
     setReturnIndex(null);
     setSelectedWord("");
     setSearchWord("");
@@ -3397,7 +3485,7 @@ void saveReadingEvent("layout_change").catch((error) => {
       setHasSelectedWork(true);
       hasSelectedWorkRef.current = true;
       setTextUploadError("");
-      setIsAutoScroll(false);
+      changeAutoScroll(false);
       isRestoringProgressRef.current = true;
       isInitialProgressResolvedRef.current = false;
 
@@ -3438,7 +3526,7 @@ void saveReadingEvent("layout_change").catch((error) => {
   ) {
     await endReadingSession();
   }
-    setIsAutoScroll(false);
+    changeAutoScroll(false);
     setReturnIndex(null);
     setSelectedWord("");
     setSearchWord("");
@@ -3496,23 +3584,21 @@ void saveReadingEvent("layout_change").catch((error) => {
 
     const saveReadingEvent = async (
     type: ReadingEventType,
-    options?: {
-      reactionEmoji?: string;
-      reactionComment?: string;
-    },
+    options?: ReadingEventDetails,
+    context?: ReadingEventContext,
   ) => {
     if (!authUser) return;
 
-    const sessionId = readingSessionIdRef.current;
+    const sessionId = context?.sessionId ?? readingSessionIdRef.current;
     const unitsLength = readingUnitsLengthRef.current;
 
-    if (!sessionId || unitsLength <= 0) return;
+    if (!sessionId || (unitsLength <= 0 && context?.percent === undefined)) return;
 
     const safeIndex = Math.max(
       0,
       Math.min(
-        currentParagraphIndexRef.current,
-        unitsLength - 1,
+        context?.paragraphIndex ?? currentParagraphIndexRef.current,
+        Math.max(0, unitsLength - 1),
       ),
     );
 
@@ -3520,20 +3606,187 @@ void saveReadingEvent("layout_change").catch((error) => {
       sessionId,
       userId: authUser.uid,
       type,
-      createdAt: Date.now(),
+      createdAt: context?.createdAt ?? Date.now(),
       paragraphIndex: safeIndex,
-      percent: getDisplayPercent(safeIndex, unitsLength),
-      layoutMode: layoutModeRef.current,
-      groupId: currentGroup?.id ?? "",
-      ...(options?.reactionEmoji
-        ? { reactionEmoji: options.reactionEmoji }
-        : {}),
-      ...(options?.reactionComment
-        ? { reactionComment: options.reactionComment }
-        : {}),
+      percent: context?.percent ?? getDisplayPercent(safeIndex, unitsLength),
+      layoutMode: context?.layoutMode ?? layoutModeRef.current,
+      groupId: context?.groupId ?? currentGroup?.id ?? "",
+      ...options,
     };
 
     await addDoc(collection(db, "readingEvents"), event);
+  };
+
+  const scanVisibleReadingDisplay = () => {
+    const sessionId = readingSessionIdRef.current;
+    if (!sessionId || document.visibilityState !== "visible") {
+      activeVisibleNameKeysRef.current.clear();
+      return;
+    }
+
+    const readingArea = readingAreaRef.current;
+    if (!readingArea) return;
+    const areaRect = readingArea.getBoundingClientRect();
+    const intersects = (rect: DOMRect, region?: DOMRect) => {
+      const left = Math.max(0, region?.left ?? 0, rect.left);
+      const top = Math.max(0, region?.top ?? 0, rect.top);
+      const right = Math.min(window.innerWidth, region?.right ?? window.innerWidth, rect.right);
+      const bottom = Math.min(window.innerHeight, region?.bottom ?? window.innerHeight, rect.bottom);
+      return right > left && bottom > top;
+    };
+
+    const currentNameKeys = new Set<string>();
+    document.querySelectorAll<HTMLElement>(".reader-follow-badge[data-reader-id][data-reader-paragraph-index]").forEach((badge) => {
+      const readerId = badge.dataset.readerId;
+      const targetPosition = Number(badge.dataset.readerParagraphIndex);
+      const overlay = badge.closest<HTMLElement>(".reader-name-overlay");
+      const visible = !!readerId
+        && Number.isFinite(targetPosition)
+        && badge.getClientRects().length > 0
+        && getComputedStyle(badge).visibility !== "hidden"
+        && (!overlay || getComputedStyle(overlay).visibility !== "hidden")
+        && intersects(badge.getBoundingClientRect(), areaRect);
+      if (!readerId || !visible) return;
+
+      const key = `${readerId}:${targetPosition}`;
+      currentNameKeys.add(key);
+      if (readerId === participantId || activeVisibleNameKeysRef.current.has(key)) return;
+      activeVisibleNameKeysRef.current.add(key);
+      void saveReadingEvent("reader_name_display", {
+        action: "name_visible_in_reading_area",
+        targetUserId: readerId,
+        targetPosition,
+        targetParagraphIndex: targetPosition,
+      }).catch((error) => console.error("他者の名前表示ログ保存失敗", error));
+    });
+    for (const key of activeVisibleNameKeysRef.current) {
+      if (!currentNameKeys.has(key)) activeVisibleNameKeysRef.current.delete(key);
+    }
+
+    document.querySelectorAll<HTMLElement>("[data-reaction-id][data-reaction-sender-id][data-reaction-paragraph-index]").forEach((item) => {
+      const reactionId = item.dataset.reactionId;
+      const senderId = item.dataset.reactionSenderId;
+      const targetParagraphIndex = Number(item.dataset.reactionParagraphIndex);
+      if (!reactionId || !senderId || !Number.isFinite(targetParagraphIndex)) return;
+      if (senderId === authUser?.uid) return;
+      if (item.getClientRects().length === 0 || getComputedStyle(item).visibility === "hidden") return;
+      if (!intersects(item.getBoundingClientRect())) return;
+      if (displayedReactionIdsRef.current.has(reactionId)) return;
+
+      displayedReactionIdsRef.current.add(reactionId);
+      void saveReadingEvent("reaction_display", {
+        action: "reaction_rendered_on_screen",
+        reactionId,
+        senderId,
+        recipientId: authUser?.uid,
+        targetParagraphIndex,
+        firstDisplay: true,
+      }).catch((error) => console.error("リアクション表示ログ保存失敗", error));
+    });
+  };
+
+  const flushPendingAutoScrollSpeedChange = () => {
+    const pending = pendingAutoScrollSpeedChangeRef.current;
+    if (!pending) return;
+    if (pending.timer) clearTimeout(pending.timer);
+    pendingAutoScrollSpeedChangeRef.current = null;
+    if (pending.speedBefore === pending.speedAfter) return;
+    const endedAt = Date.now();
+    void saveReadingEvent(
+      "auto_scroll_speed_change",
+      {
+        speedBefore: pending.speedBefore,
+        speedAfter: pending.speedAfter,
+        action: "speed_change",
+        operationStartedAt: pending.startedAt,
+        operationEndedAt: endedAt,
+        durationMs: endedAt - pending.startedAt,
+      },
+      {
+        sessionId: pending.sessionId,
+        paragraphIndex: pending.fromPosition,
+        createdAt: pending.startedAt,
+      },
+    ).catch((error) => console.error("自動スクロール速度ログ保存失敗", error));
+  };
+
+  const changeAutoScroll = (enabled: boolean) => {
+    const wasEnabled = autoScrollStartedAtRef.current !== null;
+    if (wasEnabled === enabled) return;
+    setIsAutoScroll(enabled);
+    const sessionId = readingSessionIdRef.current;
+    if (!sessionId) {
+      autoScrollStartedAtRef.current = enabled ? Date.now() : null;
+      return;
+    }
+
+    const changedAt = Date.now();
+    if (enabled) {
+      autoScrollStartedAtRef.current = changedAt;
+      void saveReadingEvent(
+        "auto_scroll_on",
+        { speed: autoScrollSpeedRef.current, operationStartedAt: changedAt },
+        { createdAt: changedAt },
+      ).catch((error) => console.error("オートスクロール開始ログ保存失敗", error));
+      if (!autoScrollRecordedForSessionRef.current) {
+        autoScrollRecordedForSessionRef.current = true;
+        void setDoc(
+          doc(db, "readingSessions", sessionId),
+          { autoScrollUsed: true },
+          { merge: true },
+        ).catch((error) => console.error("オートスクロール利用記録失敗", error));
+      }
+      return;
+    }
+
+    const startedAt = autoScrollStartedAtRef.current ?? changedAt;
+    autoScrollStartedAtRef.current = null;
+    void saveReadingEvent(
+      "auto_scroll_off",
+      {
+        speed: autoScrollSpeedRef.current,
+        operationStartedAt: startedAt,
+        operationEndedAt: changedAt,
+        durationMs: Math.max(0, changedAt - startedAt),
+      },
+      { createdAt: changedAt },
+    ).catch((error) => console.error("オートスクロール停止ログ保存失敗", error));
+  };
+
+  const handleAutoSpeedChange = (nextSpeed: number) => {
+    const previousSpeed = autoScrollSpeedRef.current;
+    const sessionId = readingSessionIdRef.current;
+    if (previousSpeed === nextSpeed) {
+      changeAutoSpeed(nextSpeed);
+      return;
+    }
+
+    if (!sessionId) {
+      autoScrollSpeedRef.current = nextSpeed;
+      changeAutoSpeed(nextSpeed);
+      return;
+    }
+
+    let pending = pendingAutoScrollSpeedChangeRef.current;
+    if (!pending || pending.sessionId !== sessionId) {
+      if (pending?.timer) clearTimeout(pending.timer);
+      pending = {
+        sessionId,
+        startedAt: Date.now(),
+        fromPosition: currentParagraphIndexRef.current,
+        speedBefore: previousSpeed,
+        speedAfter: nextSpeed,
+        timer: null,
+      };
+      pendingAutoScrollSpeedChangeRef.current = pending;
+    } else {
+      pending.speedAfter = nextSpeed;
+    }
+
+    autoScrollSpeedRef.current = nextSpeed;
+    changeAutoSpeed(nextSpeed);
+    if (pending.timer) clearTimeout(pending.timer);
+    pending.timer = setTimeout(flushPendingAutoScrollSpeedChange, 600);
   };
 
     const startReadingSession = async () => {
@@ -3546,6 +3799,9 @@ void saveReadingEvent("layout_change").catch((error) => {
       getFallbackCurrentWork(selectedStoryRef.current);
 
     const now = Date.now();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const orientation = viewportWidth >= viewportHeight ? "landscape" : "portrait";
     const startIndex = Math.max(
       0,
       Math.min(
@@ -3584,7 +3840,10 @@ void saveReadingEvent("layout_change").catch((error) => {
       inactiveDurationMs: 0,
       reactionCount: 0,
       layoutMode: layoutModeRef.current,
-      autoScrollUsed: false,
+      autoScrollUsed: isAutoScroll,
+      viewportWidth,
+      viewportHeight,
+      orientation,
     };
 
     await setDoc(sessionRef, session);
@@ -3595,8 +3854,21 @@ void saveReadingEvent("layout_change").catch((error) => {
     lastPositionLogAtRef.current = now;
     readingSessionHiddenAtRef.current = null;
     readingSessionInactiveDurationRef.current = 0;
+    autoScrollStartedAtRef.current = isAutoScroll ? now : null;
+    autoScrollRecordedForSessionRef.current = isAutoScroll;
+    displayedReactionIdsRef.current.clear();
+    backtrackCandidateStartRef.current = null;
+    lastBacktrackLoggedAtRef.current = 0;
+    setReadingSessionVersion((version) => version + 1);
 
     await saveReadingEvent("reading_start");
+    if (isAutoScroll) {
+      await saveReadingEvent("auto_scroll_on", {
+        speed: autoSpeed,
+        operationStartedAt: now,
+        action: "already_active_at_session_start",
+      }, { createdAt: now });
+    }
   };
     const endReadingSession = async () => {
     if (!authUser) return;
@@ -3606,7 +3878,9 @@ void saveReadingEvent("layout_change").catch((error) => {
 
     if (!sessionId || startedAt === null) return;
 
+    if (isAutoScroll) changeAutoScroll(false);
     const now = Date.now();
+    flushPendingAutoScrollSpeedChange();
     const unitsLength = readingUnitsLengthRef.current;
 
     const endIndex =
@@ -3664,6 +3938,9 @@ if (readingSessionHiddenAtRef.current !== null) {
     lastPositionLogAtRef.current = 0;
     readingSessionHiddenAtRef.current = null;
     readingSessionInactiveDurationRef.current = 0;
+    displayedReactionIdsRef.current.clear();
+    backtrackCandidateStartRef.current = null;
+    setReadingSessionVersion((version) => version + 1);
   };
 
   const saveReadingProgressToFirestore = (
@@ -4176,6 +4453,71 @@ if (readingSessionHiddenAtRef.current !== null) {
   }, [layoutMode]);
 
   useEffect(() => {
+    autoScrollSpeedRef.current = autoSpeed;
+  }, [autoSpeed]);
+
+  useEffect(() => {
+    const sessionId = readingSessionIdRef.current;
+    if (!sessionId) {
+      activeVisibleNameKeysRef.current.clear();
+      return;
+    }
+
+    scanVisibleReadingDisplay();
+    const timer = window.setInterval(scanVisibleReadingDisplay, 500);
+    return () => window.clearInterval(timer);
+  }, [readingSessionVersion, visibleParticipants, visibleReactions, participantId, authUser?.uid]);
+
+  useEffect(() => {
+    const sessionId = readingSessionIdRef.current;
+    if (!sessionId) return;
+
+    let previous = {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      orientation: window.innerWidth >= window.innerHeight ? "landscape" as const : "portrait" as const,
+    };
+    let debounceTimer: number | null = null;
+
+    const recordViewportChange = () => {
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        debounceTimer = null;
+        if (readingSessionIdRef.current !== sessionId) return;
+        const next = {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          orientation: window.innerWidth >= window.innerHeight ? "landscape" as const : "portrait" as const,
+        };
+        if (next.width === previous.width && next.height === previous.height) return;
+
+        const before = previous;
+        previous = next;
+        const createdAt = Date.now();
+        void saveReadingEvent("viewport_change", {
+          action: before.orientation === next.orientation ? "resize" : "orientation_change",
+          previousViewportWidth: before.width,
+          previousViewportHeight: before.height,
+          viewportWidth: next.width,
+          viewportHeight: next.height,
+          previousOrientation: before.orientation,
+          orientation: next.orientation,
+        }, { sessionId, createdAt }).catch((error) => {
+          console.error("画面サイズ変更ログ保存失敗", error);
+        });
+      }, 250);
+    };
+
+    window.addEventListener("resize", recordViewportChange);
+    window.addEventListener("orientationchange", recordViewportChange);
+    return () => {
+      if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+      window.removeEventListener("resize", recordViewportChange);
+      window.removeEventListener("orientationchange", recordViewportChange);
+    };
+  }, [readingSessionVersion]);
+
+  useEffect(() => {
     readingUnitsLengthRef.current = readingUnits.length;
   }, [readingUnits.length]);
 
@@ -4523,9 +4865,10 @@ useEffect(() => {
       readingSessionIdRef.current &&
       readingSessionHiddenAtRef.current === null
     ) {
-      readingSessionHiddenAtRef.current = Date.now();
+      const hiddenAt = Date.now();
+      readingSessionHiddenAtRef.current = hiddenAt;
 
-      void saveReadingEvent("visibility_hidden").catch((error) => {
+      void saveReadingEvent("visibility_hidden", { hiddenAt }, { createdAt: hiddenAt }).catch((error) => {
   console.error("タブ離脱ログ保存失敗", error);
 });
     }
@@ -4536,8 +4879,18 @@ useEffect(() => {
       readingSessionIdRef.current &&
       readingSessionHiddenAtRef.current !== null
     ) {
-      readingSessionInactiveDurationRef.current +=
-        Date.now() - readingSessionHiddenAtRef.current;
+      const hiddenAt = readingSessionHiddenAtRef.current;
+      const resumedAt = Date.now();
+      const hiddenDurationMs = Math.max(0, resumedAt - hiddenAt);
+      readingSessionInactiveDurationRef.current += hiddenDurationMs;
+
+      void saveReadingEvent("visibility_visible", {
+        hiddenAt,
+        resumedAt,
+        hiddenDurationMs,
+      }, { createdAt: resumedAt }).catch((error) => {
+        console.error("タブ復帰ログ保存失敗", error);
+      });
 
       readingSessionHiddenAtRef.current = null;
       readingSessionLastActiveAtRef.current = Date.now();
@@ -4593,7 +4946,7 @@ useEffect(() => {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((docData) =>
-        normalizeReaction(docData.data()),
+        normalizeReaction(docData.data(), docData.id),
       );
 
       setReactions(data);
@@ -4934,6 +5287,28 @@ useEffect(() => {
       if (!isInitialProgressResolvedRef.current) return;
       if (isPageLeavingRef.current) return;
 
+      const previousIndex = currentParagraphIndexRef.current;
+      if (nearestIndex < previousIndex && !isAutoScroll) {
+        const candidateStart = backtrackCandidateStartRef.current ?? previousIndex;
+        if (candidateStart - nearestIndex >= 2 && Date.now() - lastBacktrackLoggedAtRef.current >= 1200) {
+          const createdAt = Date.now();
+          void saveReadingEvent("reading_backtrack", {
+            action: "scroll_backward",
+            fromParagraphIndex: candidateStart,
+            toParagraphIndex: nearestIndex,
+            movementDistance: candidateStart - nearestIndex,
+          }, { paragraphIndex: nearestIndex, createdAt }).catch((error) => {
+            console.error("読書位置後退ログ保存失敗", error);
+          });
+          backtrackCandidateStartRef.current = nearestIndex;
+          lastBacktrackLoggedAtRef.current = createdAt;
+        } else {
+          backtrackCandidateStartRef.current = candidateStart;
+        }
+      } else if (nearestIndex > previousIndex) {
+        backtrackCandidateStartRef.current = null;
+      }
+
       setCurrentParagraphIndex(nearestIndex);
       currentParagraphIndexRef.current = nearestIndex;
       lastStableParagraphIndexRef.current = nearestIndex;
@@ -4949,9 +5324,21 @@ useEffect(() => {
   const moveToParagraph = (
     nextIndex: number,
     mode: LayoutMode = layoutMode,
-    options: { rememberReturnPoint?: boolean } = {},
+    options: { rememberReturnPoint?: boolean; action?: string } = {},
   ) => {
     const safeIndex = Math.max(0, Math.min(nextIndex, readingUnits.length - 1));
+    const fromPosition = currentParagraphIndexRef.current;
+
+    if (options.action && safeIndex !== fromPosition) {
+      void saveReadingEvent("readhead_move", {
+        action: options.action,
+        fromParagraphIndex: fromPosition,
+        toParagraphIndex: safeIndex,
+        movementDistance: Math.abs(safeIndex - fromPosition),
+      }, { paragraphIndex: safeIndex }).catch((error) => {
+        console.error("読書位置操作ログ保存失敗", error);
+      });
+    }
 
     if (
       options.rememberReturnPoint &&
@@ -4994,7 +5381,7 @@ useEffect(() => {
   const moveToNormalParagraph = (
     nextParagraphIndex: number,
     mode: LayoutMode = layoutMode,
-    options: { rememberReturnPoint?: boolean } = {},
+    options: { rememberReturnPoint?: boolean; action?: string } = {},
   ) => {
     const safeParagraphIndex = Math.max(
       0,
@@ -5090,7 +5477,7 @@ useEffect(() => {
       updateReadingPositionForOthers();
 
       if (layoutMode !== "horizontal" && virtualScrollLeft <= 0) {
-        setIsAutoScroll(false);
+        changeAutoScroll(false);
         return;
       }
 
@@ -5099,7 +5486,7 @@ useEffect(() => {
         readingArea.scrollTop + readingArea.clientHeight >=
           readingArea.scrollHeight - 2
       ) {
-        setIsAutoScroll(false);
+        changeAutoScroll(false);
         return;
       }
 
@@ -5211,38 +5598,53 @@ if (readingSessionIdRef.current) {
 
     if (!trimmedWord) return;
 
+    const position = currentParagraphIndexRef.current;
+    const now = Date.now();
+    const recentAction = lastDictionaryActionRef.current;
+    const isDuplicateAction = recentAction !== null
+      && recentAction.word === trimmedWord
+      && recentAction.position === position
+      && now - recentAction.time < 450;
+
     setSelectedWord(trimmedWord);
     setSearchWord(trimmedWord);
-    fetchWikiMeaning(trimmedWord);
-  };
-  
-    const changeAutoScroll = (enabled: boolean) => {
-    setIsAutoScroll(enabled);
+    if (isDuplicateAction) return;
 
-    if (!readingSessionIdRef.current) return;
+    lastDictionaryActionRef.current = { word: trimmedWord, position, time: now };
+    const sessionId = readingSessionIdRef.current;
+    const unitsLength = readingUnitsLengthRef.current;
+    const sessionContext = sessionId && unitsLength > 0
+      ? {
+          sessionId,
+          paragraphIndex: position,
+          percent: getDisplayPercent(position, unitsLength),
+          layoutMode: layoutModeRef.current,
+          groupId: currentGroup?.id ?? "",
+          createdAt: now,
+        }
+      : undefined;
+    const lookupAction = dictionary[trimmedWord] ? "local_dictionary" : "wikipedia_lookup";
 
-    void saveReadingEvent(
-      enabled ? "auto_scroll_on" : "auto_scroll_off",
-    ).catch((error) => {
-      console.error("オートスクロールログ保存失敗", error);
-    });
-
-    if (enabled) {
-      void setDoc(
-        doc(db, "readingSessions", readingSessionIdRef.current),
-        {
-          autoScrollUsed: true,
-        },
-        { merge: true },
-      ).catch((error) => {
-        console.error("オートスクロール利用記録失敗", error);
+    void fetchWikiMeaning(trimmedWord).finally(() => {
+      if (!sessionContext) return;
+      const endedAt = Date.now();
+      void saveReadingEvent("dictionary_lookup", {
+        action: lookupAction,
+        lookupStartedAt: now,
+        lookupEndedAt: endedAt,
+        durationMs: Math.max(0, endedAt - now),
+      }, sessionContext).catch((error) => {
+        console.error("辞書利用ログ保存失敗", error);
       });
-    }
+    });
   };
 
     const changeReaderMode = (mode: ReaderMode) => {
     if (mode === "shared" && !currentGroup) return;
     if (mode === readerMode) return;
+
+      const fromMode = readerModeRef.current;
+      const position = currentParagraphIndexRef.current;
 
     readerModeRef.current = mode;
     setReaderMode(mode);
@@ -5254,6 +5656,15 @@ if (readingSessionIdRef.current) {
       mode === "shared"
         ? "reader_mode_shared"
         : "reader_mode_solo",
+      {
+        action: "reading_mode_change",
+        workId: currentWorkRef.current.workId,
+        fromMode: fromMode === "shared" ? "shared" : "solo",
+        toMode: mode === "shared" ? "shared" : "solo",
+        fromParagraphIndex: position,
+        toParagraphIndex: position,
+      },
+      { paragraphIndex: position },
     ).catch((error) => {
       console.error("読書モード変更ログ保存失敗", error);
     });
@@ -5278,11 +5689,11 @@ if (readingSessionIdRef.current) {
       event.preventDefault();
 
       if (layoutMode === "normal") {
-        moveToNormalParagraph(activeParagraphIndex + 1, layoutMode);
+        moveToNormalParagraph(activeParagraphIndex + 1, layoutMode, { action: "keyboard_arrowleft" });
       } else if (layoutMode === "horizontal") {
-        moveToNormalParagraph(activeParagraphIndex + 1, "horizontal");
+        moveToNormalParagraph(activeParagraphIndex + 1, "horizontal", { action: "keyboard_arrowleft" });
       } else {
-        moveToParagraph(currentParagraphIndexRef.current + 1, layoutMode);
+        moveToParagraph(currentParagraphIndexRef.current + 1, layoutMode, { action: "keyboard_arrowleft" });
       }
     }
 
@@ -5292,27 +5703,31 @@ if (readingSessionIdRef.current) {
       if (layoutMode === "normal") {
         moveToNormalParagraph(activeParagraphIndex - 1, layoutMode, {
           rememberReturnPoint: true,
+          action: "keyboard_arrowright",
         });
       } else if (layoutMode === "horizontal") {
         moveToNormalParagraph(activeParagraphIndex - 1, "horizontal", {
           rememberReturnPoint: true,
+          action: "keyboard_arrowright",
         });
       } else {
         moveToParagraph(currentParagraphIndexRef.current - 1, layoutMode, {
           rememberReturnPoint: true,
+          action: "keyboard_arrowright",
         });
       }
     }
 
     if (key === "arrowdown" && layoutMode === "horizontal") {
       event.preventDefault();
-      moveToNormalParagraph(activeParagraphIndex + 1, "horizontal");
+      moveToNormalParagraph(activeParagraphIndex + 1, "horizontal", { action: "keyboard_arrowdown" });
     }
 
     if (key === "arrowup" && layoutMode === "horizontal") {
       event.preventDefault();
       moveToNormalParagraph(activeParagraphIndex - 1, "horizontal", {
         rememberReturnPoint: true,
+        action: "keyboard_arrowup",
       });
     }
 
@@ -5357,7 +5772,7 @@ if (readingSessionIdRef.current) {
       Math.min(returnIndex, readingUnits.length - 1),
     );
 
-    moveToParagraph(targetIndex, layoutModeRef.current);
+    moveToParagraph(targetIndex, layoutModeRef.current, { action: "return_to_position" });
     setReturnIndex(null);
     showReadingProgressNotice("元の位置へ戻りました");
   };
@@ -5418,6 +5833,11 @@ if (readingSessionIdRef.current) {
     bookmarksRef.current = nextBookmarks;
     setBookmarks(nextBookmarks);
     saveBookmarksToFirestore(nextBookmarks);
+    void saveReadingEvent("bookmark_add", {
+      action: "bookmark_add",
+      bookmarkSlot: slotIndex + 1,
+      targetParagraphIndex: safeIndex,
+    }).catch((error) => console.error("しおり追加ログ保存失敗", error));
 
     showReadingProgressNotice(
       `読書位置${slotIndex + 1}を保存しました`,
@@ -5437,6 +5857,18 @@ if (readingSessionIdRef.current) {
       Math.min(savedIndex, readingUnits.length - 1),
     );
 
+    const fromPosition = currentParagraphIndexRef.current;
+    void saveReadingEvent("bookmark_jump", {
+      action: "bookmark_jump",
+      bookmarkSlot: slotIndex + 1,
+      targetParagraphIndex: targetIndex,
+      fromParagraphIndex: fromPosition,
+      toParagraphIndex: targetIndex,
+      movementDistance: Math.abs(targetIndex - fromPosition),
+    }, { paragraphIndex: targetIndex }).catch((error) => {
+      console.error("しおり移動ログ保存失敗", error);
+    });
+
     moveToParagraph(targetIndex, layoutModeRef.current);
 
     showReadingProgressNotice(
@@ -5447,12 +5879,20 @@ if (readingSessionIdRef.current) {
   const handleDeleteBookmark = (slotIndex: number) => {
     if (slotIndex < 0 || slotIndex >= 4) return;
 
+    const targetIndex = bookmarksRef.current[slotIndex];
     const nextBookmarks = [...bookmarksRef.current];
     nextBookmarks[slotIndex] = null;
 
     bookmarksRef.current = nextBookmarks;
     setBookmarks(nextBookmarks);
     saveBookmarksToFirestore(nextBookmarks);
+    if (targetIndex !== null && targetIndex !== undefined) {
+      void saveReadingEvent("bookmark_delete", {
+        action: "bookmark_delete",
+        bookmarkSlot: slotIndex + 1,
+        targetParagraphIndex: targetIndex,
+      }).catch((error) => console.error("しおり削除ログ保存失敗", error));
+    }
 
     showReadingProgressNotice(
       `読書位置${slotIndex + 1}を削除しました`,
@@ -5460,7 +5900,7 @@ if (readingSessionIdRef.current) {
   };
 
   const handleParagraphClick = (index: number) => {
-    moveToParagraph(index, layoutMode);
+    moveToParagraph(index, layoutMode, { action: "paragraph_click" });
   };
 
   const readingPercent = getPercent(currentParagraphIndex, readingUnits.length);
@@ -6276,6 +6716,8 @@ if (readingSessionIdRef.current) {
                               {readersInParagraph.map((reader) => (
                                 <span
                                   key={reader.id}
+                                  data-reader-id={reader.id}
+                                  data-reader-paragraph-index={reader.paragraphIndex}
                                   style={participantBadgeStyle(reader.id)}
                                   className={`reader-follow-badge ${
                                     reader.id === participantId ? "is-me" : ""
@@ -6361,6 +6803,8 @@ if (readingSessionIdRef.current) {
                                   {readersInParagraph.map((reader) => (
                                     <span
                                       key={reader.id}
+                                      data-reader-id={reader.id}
+                                      data-reader-paragraph-index={reader.paragraphIndex}
                                       style={participantBadgeStyle(reader.id)}
                                       className={`reader-follow-badge ${
                                         reader.id === participantId
@@ -6419,6 +6863,8 @@ if (readingSessionIdRef.current) {
                                         {readersHere.map((reader) => (
                                           <span
                                             key={reader.id}
+                                            data-reader-id={reader.id}
+                                            data-reader-paragraph-index={reader.paragraphIndex}
                                             style={participantBadgeStyle(reader.id)}
                                             className={`reader-follow-badge ${
                                               reader.id === participantId
@@ -6626,7 +7072,7 @@ if (readingSessionIdRef.current) {
                   </span>
                 </summary>
                 <div className="border-t border-gray-100 px-3 pb-3 pt-3">
-                  <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={changeAutoSpeed} onToggle={() => changeAutoScroll(!isAutoScroll)} />
+                  <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={handleAutoSpeedChange} onToggle={() => changeAutoScroll(!isAutoScroll)} />
                 </div>
               </details>
 
@@ -6901,6 +7347,9 @@ if (readingSessionIdRef.current) {
                     {visibleReactions.map((reaction, index) => (
                       <div
                         key={`${reaction.createdAt}-${index}`}
+                        data-reaction-id={reaction.id}
+                        data-reaction-sender-id={reaction.participantId}
+                        data-reaction-paragraph-index={reaction.paragraphIndex}
                         className="rounded-2xl border border-[#f0e7e4] bg-[#fff8f7] px-3 py-3 text-sm"
                       >
                         <div>
@@ -7066,7 +7515,7 @@ if (readingSessionIdRef.current) {
                       {`${autoSpeed} / 100 · ${isAutoScroll ? "再生中" : "停止中"}`}
                     </span>
                   </div>
-                  <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={changeAutoSpeed} onToggle={() => changeAutoScroll(!isAutoScroll)} />
+                  <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={handleAutoSpeedChange} onToggle={() => changeAutoScroll(!isAutoScroll)} />
                 </div>
 
                 <div>
@@ -7207,6 +7656,9 @@ if (readingSessionIdRef.current) {
                         visibleReactions.map((reaction, index) => (
                           <div
                             key={`${reaction.createdAt}-${index}`}
+                            data-reaction-id={reaction.id}
+                            data-reaction-sender-id={reaction.participantId}
+                            data-reaction-paragraph-index={reaction.paragraphIndex}
                             className="rounded-xl bg-gray-50 px-3 py-2 text-sm"
                           >
                             <div className="font-bold">
