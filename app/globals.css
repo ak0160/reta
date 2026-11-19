@@ -121,13 +121,17 @@ rt {
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  padding-top: 1rem;
+  padding-top: 1em;
+}
+.reta-reader-body .normal-reading-unit {
+  margin-left: calc(1rem * var(--reader-paragraph-spacing, 1)) !important;
+  transition: background-color 120ms ease;
 }
 
 .normal-reading-unit.is-active {
   position: relative !important;
-  background: rgba(254, 240, 138, 0.28) !important;
-  border-radius: 1.4rem !important;
+  background: var(--reader-highlight-fill, rgba(254, 240, 138, 0.28)) !important;
+  border-radius: 1.4em !important;
 }
 
 .normal-reading-unit.is-active::before {
@@ -137,12 +141,13 @@ rt {
 .normal-reading-unit.is-active::after {
   content: "" !important;
   position: absolute !important;
-  top: 20px !important;
-  right: -2px !important;
-  bottom: 8px !important;
-  width: 5px !important;
+  top: 1em !important;
+  right: -0.1em !important;
+  bottom: 0.4em !important;
+  width: 0.25em !important;
   border-radius: 999px !important;
-  background: #facc15 !important;
+  background: var(--reader-highlight-line, #facc15) !important;
+  opacity: var(--reader-highlight-marker-opacity, 1) !important;
   z-index: 20 !important;
   display: block !important;
   pointer-events: none !important;
@@ -168,6 +173,9 @@ rt {
   position: relative;
   overflow: visible;
 }
+.reta-reader-body .grouped-paragraph-shell {
+  margin-left: calc(1rem * var(--reader-paragraph-spacing, 1)) !important;
+}
 
 .reading-unit {
   writing-mode: vertical-rl !important;
@@ -176,7 +184,7 @@ rt {
   display: block;
   box-sizing: border-box;
   min-width: 3em;
-  padding: 2.3rem 0.55em 0.7em 0.55em;
+  padding: 2.3em 0.55em 0.7em 0.55em;
   margin: 0 0 0 2rem !important;
   font: inherit;
   line-height: 2.35;
@@ -184,7 +192,7 @@ rt {
   color: inherit;
   cursor: pointer;
   overflow: visible;
-  border-radius: 1.4rem;
+  border-radius: 1.4em;
   background: transparent;
   border: none !important;
   outline: none !important;
@@ -192,8 +200,9 @@ rt {
 }
 
 .reading-unit.is-active {
-  background: rgba(254, 240, 138, 0.28) !important;
-  border-radius: 1.4rem !important;
+  background: var(--reader-highlight-fill, rgba(254, 240, 138, 0.28)) !important;
+  border-radius: 1.4em !important;
+  transition: background-color 120ms ease;
 }
 
 .reading-unit.is-active::before {
@@ -203,12 +212,13 @@ rt {
 .reading-unit.is-active::after {
   content: "" !important;
   position: absolute !important;
-  top: 0.6rem !important;
-  right: 0.25rem !important;
-  bottom: 0.6rem !important;
-  width: 5px !important;
+  top: 0.6em !important;
+  right: 0.25em !important;
+  bottom: 0.6em !important;
+  width: 0.25em !important;
   border-radius: 999px !important;
-  background: rgba(250, 204, 21, 0.95) !important;
+  background: var(--reader-highlight-line, #facc15) !important;
+  opacity: var(--reader-highlight-marker-opacity, 0.95) !important;
   pointer-events: none !important;
 }
 
@@ -345,7 +355,7 @@ rt {
   min-height: auto !important;
   height: auto !important;
   margin: 0 auto;
-  padding: 2rem 0 55vh 0;
+  padding: 2em 0 55vh 0;
 }
 
 .horizontal-reading-unit {
@@ -355,13 +365,13 @@ rt {
   display: block;
   max-width: 46rem;
   margin: 0 auto 3rem auto !important;
-  padding: 1.2rem 2rem 1.2rem 3rem !important;
+  padding: 1.2em 2em 1.2em 3em !important;
   line-height: 2.1;
   cursor: pointer;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  border-radius: 1.4rem;
+  border-radius: 1.4em;
   background: transparent;
 }
 
@@ -373,9 +383,10 @@ rt {
 }
 
 .horizontal-reading-unit.is-active {
-  background: rgba(254, 240, 138, 0.28) !important;
-  border-radius: 1.4rem !important;
+  background: var(--reader-highlight-fill, rgba(254, 240, 138, 0.28)) !important;
+  border-radius: 1.4em !important;
   box-shadow: none !important;
+  transition: background-color 120ms ease;
 }
 
 .horizontal-reading-unit.is-active::before {
@@ -385,12 +396,13 @@ rt {
 .horizontal-reading-unit.is-active::after {
   content: "" !important;
   position: absolute !important;
-  top: 1rem !important;
-  bottom: 1rem !important;
-  left: 0.8rem !important;
-  width: 5px !important;
+  top: 1em !important;
+  bottom: 1em !important;
+  left: 0.8em !important;
+  width: 0.25em !important;
   border-radius: 999px !important;
-  background: rgba(250, 204, 21, 0.95) !important;
+  background: var(--reader-highlight-line, #facc15) !important;
+  opacity: var(--reader-highlight-marker-opacity, 0.95) !important;
   pointer-events: none;
 }
 
@@ -2199,4 +2211,34 @@ rt {
   bottom: auto;
   max-width: calc(100vw - 1rem);
   z-index: 1000;
+}
+
+/* Per-reader typography and paper settings for the reading viewport. */
+.reta-reader-body > .font-serif {
+  font-family: var(--reader-font-family, "Noto Serif JP", serif) !important;
+  font-size: var(--reader-font-size, 1.3rem) !important;
+  color: var(--reader-text-color, #171717) !important;
+}
+.reta-reader-body .normal-reading-unit p {
+  line-height: calc(2.1 * var(--reader-line-spacing, 1)) !important;
+  letter-spacing: calc(0.03em * var(--reader-letter-spacing, 1)) !important;
+}
+.reta-reader-body .reading-unit {
+  line-height: calc(2.35 * var(--reader-line-spacing, 1)) !important;
+  letter-spacing: calc(0.08em * var(--reader-letter-spacing, 1)) !important;
+}
+.reta-reader-body .horizontal-reading-unit {
+  line-height: calc(2.1 * var(--reader-line-spacing, 1)) !important;
+  letter-spacing: calc(0.03em * var(--reader-letter-spacing, 1)) !important;
+  margin-bottom: calc(1.5rem * var(--reader-paragraph-spacing, 1)) !important;
+  padding-block: calc(0.1em + 0.5em * var(--reader-paragraph-spacing, 1)) !important;
+}
+.reta-reader-body .reading-heading-unit {
+  font-size: calc(var(--reader-font-size, 1.3rem) * 1.12) !important;
+  letter-spacing: normal !important;
+}
+.reta-reader-body.reader-theme-dark rt { color: #d1d5db; }
+.reta-reader-body.reader-theme-dark .reading-heading-unit {
+  color: var(--reader-text-color, #FFFFFF) !important;
+  background: #38332e !important;
 }

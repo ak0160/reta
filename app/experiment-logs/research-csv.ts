@@ -1,3 +1,5 @@
+import { READING_HIGHLIGHT_LABELS, type ReadingHighlight } from "../reading-settings";
+
 export type ResearchSession = {
   id: string;
   userId?: string;
@@ -19,6 +21,16 @@ export type ResearchSession = {
   viewportWidth?: number;
   viewportHeight?: number;
   orientation?: "portrait" | "landscape";
+  readerSettings?: {
+    font: string;
+    fontSizePx: number;
+    background: string;
+    lineSpacing: number;
+    letterSpacing: number;
+    paragraphSpacing?: number;
+    highlightOpacity: number;
+    highlightColor: string;
+  };
 };
 
 type ResearchEvent = {
@@ -45,6 +57,11 @@ export function csvDateTime(timestamp?: number | null) {
   }).format(new Date(timestamp));
 }
 
+const getHighlightLabel = (value?: string) => {
+  const key = value && value in READING_HIGHLIGHT_LABELS ? value as ReadingHighlight : "yellow";
+  return READING_HIGHLIGHT_LABELS[key];
+};
+
 export function toCsv(rows: unknown[][]) {
   const cell = (value: unknown) => {
     const text = value === null || value === undefined ? "" : String(value);
@@ -59,8 +76,8 @@ export function researchRows(table: ResearchTable, experimentId: string, session
   const headers = ["実験回ID", "アカウント名", "参加者UID", "セッションID", "グループ名", "グループID", "実施日（日本時間）", "読書条件（手入力）"];
   const identity = (s: ResearchSession) => [experimentId, s.username, s.userId, s.id, s.groupName, s.groupId, jstDate(s.startedAt), ""];
   if (table === "conditions") return [
-    [...headers, "実施順序（手入力）", "作品名", "作品ID", "開始時画面幅", "開始時画面高さ", "開始時画面向き", "使用端末（手入力）", "備考（手入力）"],
-    ...sessions.map(s => [...identity(s), "", s.title, s.workId, s.viewportWidth ?? "", s.viewportHeight ?? "", s.orientation ?? "", "", ""]),
+    [...headers, "実施順序（手入力）", "作品名", "作品ID", "開始時画面幅", "開始時画面高さ", "開始時画面向き", "開始時ハイライトカラー", "開始時段落間隔", "読書設定（JSON）", "使用端末（手入力）", "備考（手入力）"],
+    ...sessions.map(s => [...identity(s), "", s.title, s.workId, s.viewportWidth ?? "", s.viewportHeight ?? "", s.orientation ?? "", getHighlightLabel(s.readerSettings?.highlightColor), s.readerSettings?.paragraphSpacing ?? 1, JSON.stringify(s.readerSettings ?? ""), "", ""]),
   ];
   if (table === "survey") return [
     [...headers, "集中できた（1〜5）", "楽しかった（1〜5）", "一緒に読んでいると感じた（1〜5）", "他者の情報で気が散った（1〜5）", "操作が分かりやすかった（1〜5）", "また使いたい（1〜5）", "良かった点", "改善してほしい点"],

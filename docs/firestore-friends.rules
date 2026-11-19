@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function enabled() {
+      return exists(/databases/$(database)/documents/friendsAccess/config)
+        && get(/databases/$(database)/documents/friendsAccess/config).data.enabled == true;
+    }
+    function validFriendship(data, pairId) {
+      return data.keys().hasAll(['memberIds', 'fromUid', 'toUid', 'fromName', 'toName', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['memberIds', 'fromUid', 'toUid', 'fromName', 'toName', 'status', 'createdAt', 'updatedAt'])
+        && data.fromUid is string && data.toUid is string
+        && data.fromUid != data.toUid
+        && data.memberIds is list && data.memberIds.size() == 2
+        && data.memberIds.hasAll([data.fromUid, data.toUid])
+        && pairId == data.memberIds[0] + '__' + data.memberIds[1]
+        && data.fromName is string && data.toName is string
+        && data.createdAt is int && data.updatedAt is int
+        && data.status in ['pending', 'accepted'];
+    }
+    match /friendsAccess/{id} {
+      allow read: if signedIn();
+      // 有効化は管理者がConsoleで行う。クライアントからは変更不可。
+      allow write: if false;
+    }
+    match /friendships/{pairId} {
+      // 申請前の重複確認では、まだ存在しない文書のgetが必要。
+      allow get: if signedIn() && enabled()
+        && (!exists(/databases/$(database)/documents/friendships/$(pairId))
+          || request.auth.uid in resource.data.memberIds);
+      allow list: if signedIn() && enabled() && request.auth.uid in resource.data.memberIds;
+      allow create: if signedIn() && enabled()
+        && validFriendship(request.resource.data, pairId)
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && get(/databases/$(database)/documents/usernames/$(request.resource.data.fromName)).data.uid == request.auth.uid
+        && get(/databases/$(database)/documents/usernames/$(request.resource.data.toName)).data.uid == request.resource.data.toUid;
+      allow update: if signedIn() && enabled()
+        && request.auth.uid == resource.data.toUid
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'accepted'
+        && validFriendship(request.resource.data, pairId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if signedIn() && enabled() && request.auth.uid in resource.data.memberIds;
+    }
+    // 検索用UIDを他人が書き換えられないようにする。既存登録・ログインを維持。
+    match /usernames/{name} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.username == name;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.username == name;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+    // 上記3コレクションを除き、提示された既存ルールの挙動を維持。
+    // 全件allowを残すと専用ルールを迂回できるため、必ず置き換える。
+    match /{collectionName}/{document=**} {
+      allow read: if !(collectionName in ['friendships', 'friendsAccess', 'usernames']);
+      allow write: if signedIn() && !(collectionName in ['friendships', 'friendsAccess', 'usernames']);
+    }
+  }
+}

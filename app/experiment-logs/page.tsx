@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { accountKey, csvDateTime, jstDate, researchRows, toCsv, type ResearchSession, type ResearchTable } from "./research-csv";
+import { READING_BACKGROUND_OPTIONS, READING_FONT_LABELS, READING_HIGHLIGHT_LABELS, type ReaderSettings, type ReadingHighlight } from "../reading-settings";
 
 type ReadingSession = ResearchSession;
 
@@ -53,6 +54,9 @@ type ReadingEvent = {
   previousViewportHeight?: number;
   orientation?: string;
   previousOrientation?: string;
+  changedSettings?: Array<keyof ReaderSettings>;
+  settingsBefore?: ReaderSettings;
+  settingsAfter?: ReaderSettings;
 };
 
 const getEventLabel = (type?: string) => {
@@ -99,6 +103,8 @@ const getEventLabel = (type?: string) => {
       return "自動スクロール速度変更";
     case "viewport_change":
       return "画面サイズ・向き変更";
+    case "reading_settings_change":
+      return "読書設定変更";
     default:
       return type || "不明なイベント";
   }
@@ -181,8 +187,21 @@ const getActionLabel = (action?: string) => {
     keyboard_arrowdown: "キーボードで次へ移動",
     resize: "画面サイズ変更",
     orientation_change: "端末の向き変更",
+    reading_settings_change: "読書設定の変更",
   };
   return action ? labels[action] ?? action : "";
+};
+
+const getSettingsLabel = (settings?: ReaderSettings) => {
+  if (!settings) return "";
+  const background = READING_BACKGROUND_OPTIONS.find(option => option.value === settings.background)?.label ?? settings.background;
+  const highlightColor = settings.highlightColor ?? "yellow";
+  return `${READING_FONT_LABELS[settings.font] ?? settings.font}・${Math.round(settings.fontSizePx)}px・${background}・行間${settings.lineSpacing.toFixed(2)}×・文字間隔${settings.letterSpacing.toFixed(2)}×・段落間隔${(settings.paragraphSpacing ?? 1).toFixed(2)}×・${getHighlightLabel(highlightColor)}${highlightColor === "none" ? "" : ` ${Math.round(settings.highlightOpacity * 100)}%`}`;
+};
+
+const getHighlightLabel = (value?: string) => {
+  const key = value && value in READING_HIGHLIGHT_LABELS ? value as ReadingHighlight : "yellow";
+  return READING_HIGHLIGHT_LABELS[key];
 };
 
 const getEventDetailsLabel = (event: ReadingEvent) => {
@@ -212,6 +231,15 @@ const getEventDetailsLabel = (event: ReadingEvent) => {
   if (event.fromMode || event.toMode) details.push(`読書方法 ${event.fromMode ?? "?"} → ${event.toMode ?? "?"}`);
   if (event.viewportWidth !== undefined && event.viewportHeight !== undefined) {
     details.push(`画面 ${event.viewportWidth}×${event.viewportHeight} (${event.orientation ?? "向き不明"})`);
+  }
+  if (event.settingsBefore || event.settingsAfter) {
+    const settingLabels: Record<keyof ReaderSettings, string> = {
+      font: "フォント", fontSizePx: "文字サイズ", background: "背景色",
+      lineSpacing: "行間", letterSpacing: "文字間隔", paragraphSpacing: "段落間隔", highlightOpacity: "ハイライトの濃さ",
+      highlightColor: "ハイライトカラー",
+    };
+    if (event.changedSettings?.length) details.push(`変更項目：${event.changedSettings.map(key => settingLabels[key]).join("、")}`);
+    details.push(`設定：${getSettingsLabel(event.settingsBefore)} → ${getSettingsLabel(event.settingsAfter)}`);
   }
   return details.join(" / ");
 };
@@ -325,7 +353,8 @@ export default function ExperimentLogsPage() {
       "操作開始時刻（Unixミリ秒）", "操作終了時刻（Unixミリ秒）", "所要時間ms", "対象参加者UID", "対象読書位置", "リアクションID", "送信者UID",
       "受信者UID", "セッション内初回表示", "速度", "変更前速度", "変更後速度", "タブ非表示時刻（Unixミリ秒）", "タブ復帰時刻（Unixミリ秒）",
       "非表示時間ms", "変更前読書方法", "変更後読書方法", "変更前レイアウト", "変更後レイアウト", "画面幅", "画面高さ",
-      "変更前画面幅", "変更前画面高さ", "画面向き", "変更前画面向き",
+      "変更前画面幅", "変更前画面高さ", "画面向き", "変更前画面向き", "変更設定項目",
+      "設定変更前（JSON）", "設定変更後（JSON）", "ハイライトカラー変更前", "ハイライトカラー変更後", "段落間隔変更前", "段落間隔変更後",
       "セッション開始日時（日本時間）", "セッション終了日時（日本時間）", "イベント記録（JSON）", "セッション記録（JSON）",
     ];
     const rows = events.map(event => [
@@ -340,7 +369,10 @@ export default function ExperimentLogsPage() {
       event.firstDisplay, event.speed, event.speedBefore, event.speedAfter, event.hiddenAt, event.resumedAt,
       event.hiddenDurationMs, event.fromMode, event.toMode, event.fromLayout, event.toLayout, event.viewportWidth,
       event.viewportHeight, event.previousViewportWidth, event.previousViewportHeight, event.orientation,
-      event.previousOrientation, csvDateTime(selectedSession.startedAt),
+      event.previousOrientation, event.changedSettings?.join(";"), JSON.stringify(event.settingsBefore ?? ""),
+      JSON.stringify(event.settingsAfter ?? ""), getHighlightLabel(event.settingsBefore?.highlightColor), getHighlightLabel(event.settingsAfter?.highlightColor),
+      event.settingsBefore?.paragraphSpacing ?? "", event.settingsAfter?.paragraphSpacing ?? "",
+      csvDateTime(selectedSession.startedAt),
       csvDateTime(selectedSession.endedAt), JSON.stringify(event), JSON.stringify(selectedSession),
     ]);
     downloadFile([headers, ...rows], `reta-experiment-events-${selectedSession.id.replace(/[^a-zA-Z0-9_-]/g, "_")}.csv`);
@@ -476,6 +508,7 @@ export default function ExperimentLogsPage() {
           "対象参加者UID", "対象読書位置", "リアクションID",
           "送信者UID", "受信者UID", "セッション内初回表示", "速度", "変更前速度", "変更後速度", "非表示時間ms",
           "タブ非表示時刻（Unixミリ秒）", "タブ復帰時刻（Unixミリ秒）", "変更前読書方法", "変更後読書方法", "変更前レイアウト", "変更後レイアウト", "画面幅", "画面高さ", "画面向き",
+          "変更設定項目", "設定変更前（JSON）", "設定変更後（JSON）", "ハイライトカラー変更前", "ハイライトカラー変更後", "段落間隔変更前", "段落間隔変更後",
           "絵文字", "コメント", "イベントID"],
         ...sorted.filter(event => event.type !== "position")
           .map(event => [
@@ -511,6 +544,13 @@ export default function ExperimentLogsPage() {
             event.viewportWidth ?? "",
             event.viewportHeight ?? "",
             event.orientation ?? "",
+            event.changedSettings?.join(";") ?? "",
+            event.settingsBefore ? JSON.stringify(event.settingsBefore) : "",
+            event.settingsAfter ? JSON.stringify(event.settingsAfter) : "",
+            getHighlightLabel(event.settingsBefore?.highlightColor),
+            getHighlightLabel(event.settingsAfter?.highlightColor),
+            event.settingsBefore?.paragraphSpacing ?? "",
+            event.settingsAfter?.paragraphSpacing ?? "",
             event.reactionEmoji ?? "",
             event.reactionComment ?? "",
             event.id
@@ -774,7 +814,7 @@ export default function ExperimentLogsPage() {
                       </span>
                     </div>
 
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
                       <div className="rounded-2xl bg-gray-50 p-3">
                         <p className="text-xs font-bold text-gray-400">
                           開始日時
@@ -828,6 +868,15 @@ export default function ExperimentLogsPage() {
                         <p className="mt-1 text-sm font-bold text-gray-700">
                           {session.viewportWidth && session.viewportHeight
                             ? `${session.viewportWidth} × ${session.viewportHeight}px（${session.orientation === "landscape" ? "横向き" : "縦向き"}）`
+                            : "記録なし（既存ログ）"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-gray-50 p-3">
+                        <p className="text-xs font-bold text-gray-400">セッション開始時の読書設定</p>
+                        <p className="mt-1 text-sm font-bold text-gray-700">
+                          {session.readerSettings
+                            ? getSettingsLabel(session.readerSettings as ReaderSettings)
                             : "記録なし（既存ログ）"}
                         </p>
                       </div>

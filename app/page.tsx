@@ -4,6 +4,16 @@ import { parseProofreadText, resolveTextReadingFormat, type TextReadingFormat } 
 import ReadingMapReactions from "./reading-map-reactions";
 import ReaderNameBadges from "./reader-name-badges";
 import AutoScrollControls from "./auto-scroll-controls";
+import ReadingSettingsPanel from "./reading-settings-panel";
+import {
+  DEFAULT_READER_SETTINGS,
+  READER_SETTINGS_KEY,
+  READING_BACKGROUND_OPTIONS,
+  READING_FONT_FAMILIES,
+  getReaderHighlightPalette,
+  normalizeReaderSettings,
+  type ReaderSettings,
+} from "./reading-settings";
 import { autoScrollPixelsPerSecond } from "./auto-scroll-speed";
 import { useAutoScrollPreferences } from "./use-auto-scroll-preferences";
 import { participantColors } from "./participant-colors";
@@ -18,6 +28,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type CSSProperties,
 } from "react";
 import { auth, db } from "./firebase";
 
@@ -116,6 +127,7 @@ type ReadingSession = {
   viewportWidth: number;
   viewportHeight: number;
   orientation: "portrait" | "landscape";
+  readerSettings: ReaderSettings;
 };
 
 type ReadingEventType =
@@ -139,7 +151,8 @@ type ReadingEventType =
   | "reading_backtrack"
   | "readhead_move"
   | "auto_scroll_speed_change"
-  | "viewport_change";
+  | "viewport_change"
+  | "reading_settings_change";
 
 type ReadingEventDetails = {
   workId?: string;
@@ -176,6 +189,9 @@ type ReadingEventDetails = {
   previousViewportHeight?: number;
   orientation?: "portrait" | "landscape";
   previousOrientation?: "portrait" | "landscape";
+  changedSettings?: Array<keyof ReaderSettings>;
+  settingsBefore?: ReaderSettings;
+  settingsAfter?: ReaderSettings;
   reactionEmoji?: string;
   reactionComment?: string;
 };
@@ -1557,6 +1573,7 @@ export default function Home() {
 
     return () => window.clearTimeout(timer);
   }, []);
+
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -1643,6 +1660,38 @@ export default function Home() {
   const [reactionComment, setReactionComment] = useState("");
 
   const [isAutoScroll, setIsAutoScroll] = useState(false);
+  const [readerSettings, setReaderSettings] = useState<ReaderSettings>(DEFAULT_READER_SETTINGS);
+  const readerSettingsRef = useRef(readerSettings);
+  const [readerSettingsLoaded, setReaderSettingsLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const storedSettings = window.localStorage.getItem(READER_SETTINGS_KEY);
+      if (storedSettings) {
+        const settings = normalizeReaderSettings(JSON.parse(storedSettings));
+        readerSettingsRef.current = settings;
+        setReaderSettings(settings);
+      }
+    } catch (error) {
+      console.warn("読書設定を読み込めませんでした", error);
+    } finally {
+      setReaderSettingsLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!readerSettingsLoaded) return;
+    try {
+      window.localStorage.setItem(READER_SETTINGS_KEY, JSON.stringify(readerSettings));
+    } catch (error) {
+      console.warn("読書設定を保存できませんでした", error);
+    }
+  }, [readerSettings, readerSettingsLoaded]);
+
+  useEffect(() => () => {
+    if (readerSettingsApplyTimerRef.current !== null) window.clearTimeout(readerSettingsApplyTimerRef.current);
+    if (readerSettingsGuardTimerRef.current !== null) window.clearTimeout(readerSettingsGuardTimerRef.current);
+  }, []);
   const { speed: autoSpeed, presets: autoPresets, syncMessage: autoSpeedSyncMessage, changeSpeed: changeAutoSpeed, changePresets: changeAutoPresets } = useAutoScrollPreferences(authUser?.uid);
   const [readingProgressNotice, setReadingProgressNotice] = useState("");
   const [returnIndex, setReturnIndex] = useState<number | null>(null);
@@ -1714,6 +1763,19 @@ export default function Home() {
     speedAfter: number;
     timer: ReturnType<typeof setTimeout> | null;
   } | null>(null);
+  const pendingReaderSettingsChangeRef = useRef<{
+    sessionId: string;
+    startedAt: number;
+    fromPosition: number;
+    settingsBefore: ReaderSettings;
+    settingsAfter: ReaderSettings;
+    groupId: string;
+    workId: string;
+    layoutMode: LayoutMode;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null>(null);
+  const readerSettingsApplyTimerRef = useRef<number | null>(null);
+  const readerSettingsGuardTimerRef = useRef<number | null>(null);
   const didLoadLastReadingStateRef = useRef(false);
   const isRestoringProgressRef = useRef(false);
   const textLoadRequestIdRef = useRef(0);
@@ -1759,12 +1821,46 @@ export default function Home() {
 
   const activeParagraphIndex = currentReadingUnit?.paragraphIndex ?? 0;
 
+  const activeReaderBackground = READING_BACKGROUND_OPTIONS.find(
+    option => option.value === readerSettings.background,
+  ) ?? READING_BACKGROUND_OPTIONS[1];
+  const activeHighlightPalette = getReaderHighlightPalette(
+    readerSettings.background,
+    readerSettings.highlightColor,
+  );
+  const highlightIsVisible = readerSettings.highlightColor !== "none";
+  const readerContentStyle = {
+    "--reader-font-family": READING_FONT_FAMILIES[readerSettings.font],
+    "--reader-font-size": `${readerSettings.fontSizePx}px`,
+    "--reader-text-color": activeReaderBackground.text,
+    "--reader-line-spacing": String(readerSettings.lineSpacing),
+    "--reader-letter-spacing": String(readerSettings.letterSpacing),
+    "--reader-paragraph-spacing": String(readerSettings.paragraphSpacing),
+    "--reader-highlight-fill": highlightIsVisible
+      ? `rgba(${activeHighlightPalette.fillRgb}, ${readerSettings.highlightOpacity})`
+      : "transparent",
+    "--reader-highlight-line": highlightIsVisible ? activeHighlightPalette.line : "transparent",
+    "--reader-highlight-marker-opacity": highlightIsVisible
+      ? String(Math.min(1, readerSettings.highlightOpacity / DEFAULT_READER_SETTINGS.highlightOpacity)
+        * (layoutMode === "normal" ? 1 : 0.95))
+      : "0",
+    backgroundColor: activeReaderBackground.color,
+    color: activeReaderBackground.text,
+  } as CSSProperties;
+
   const colorsForParticipant = (id: string) => participantColors(
     currentGroup?.memberIds ?? [], participantId || authUser?.uid || "", id,
   );
   const participantBadgeStyle = (id: string) => {
-    if (id === participantId) return undefined;
     const colors = colorsForParticipant(id);
+    if (readerSettings.background === "dark") {
+      return {
+        backgroundColor: "#333333",
+        borderColor: colors.border,
+        color: "#FFFFFF",
+      };
+    }
+    if (id === participantId) return undefined;
     return { backgroundColor: colors.background, borderColor: colors.border, color: colors.text };
   };
 
@@ -3789,6 +3885,97 @@ void saveReadingEvent("layout_change", {
     pending.timer = setTimeout(flushPendingAutoScrollSpeedChange, 600);
   };
 
+  const flushPendingReaderSettingsChange = () => {
+    const pending = pendingReaderSettingsChangeRef.current;
+    if (!pending) return;
+    if (pending.timer) clearTimeout(pending.timer);
+    pendingReaderSettingsChangeRef.current = null;
+
+    const settingKeys: Array<keyof ReaderSettings> = [
+      "font", "fontSizePx", "background", "lineSpacing", "letterSpacing", "paragraphSpacing", "highlightOpacity",
+      "highlightColor",
+    ];
+    const changedSettings = settingKeys.filter(
+      key => pending.settingsBefore[key] !== pending.settingsAfter[key],
+    );
+    if (changedSettings.length === 0) return;
+
+    const endedAt = Date.now();
+    void saveReadingEvent("reading_settings_change", {
+      action: "reading_settings_change",
+      changedSettings,
+      settingsBefore: pending.settingsBefore,
+      settingsAfter: pending.settingsAfter,
+      operationStartedAt: pending.startedAt,
+      operationEndedAt: endedAt,
+      durationMs: Math.max(0, endedAt - pending.startedAt),
+      workId: pending.workId,
+    }, {
+      sessionId: pending.sessionId,
+      paragraphIndex: pending.fromPosition,
+      layoutMode: pending.layoutMode,
+      groupId: pending.groupId,
+      createdAt: pending.startedAt,
+    }).catch(error => console.error("読書設定変更ログ保存失敗", error));
+  };
+
+  const handleReaderSettingsChange = (nextSettings: ReaderSettings) => {
+    const previousSettings = readerSettingsRef.current;
+    if (JSON.stringify(previousSettings) === JSON.stringify(nextSettings)) return;
+
+    readerSettingsRef.current = nextSettings;
+    setReaderSettings(nextSettings);
+
+    if (
+      hasSelectedWork
+      && readingUnitsLengthRef.current > 0
+      && isInitialProgressResolvedRef.current
+      && !isRestoringProgressRef.current
+    ) {
+      isProgrammaticScrollRef.current = true;
+      if (readerSettingsApplyTimerRef.current !== null) {
+        window.clearTimeout(readerSettingsApplyTimerRef.current);
+      }
+      if (readerSettingsGuardTimerRef.current !== null) {
+        window.clearTimeout(readerSettingsGuardTimerRef.current);
+      }
+      readerSettingsApplyTimerRef.current = window.setTimeout(() => {
+        readerSettingsApplyTimerRef.current = null;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          scrollToFocus(currentParagraphIndexRef.current, layoutModeRef.current);
+          readerSettingsGuardTimerRef.current = window.setTimeout(() => {
+            readerSettingsGuardTimerRef.current = null;
+            isProgrammaticScrollRef.current = false;
+          }, 350);
+        }));
+      }, 100);
+    }
+
+    const sessionId = readingSessionIdRef.current;
+    if (!sessionId) return;
+
+    let pending = pendingReaderSettingsChangeRef.current;
+    if (!pending || pending.sessionId !== sessionId) {
+      if (pending) flushPendingReaderSettingsChange();
+      pending = {
+        sessionId,
+        startedAt: Date.now(),
+        fromPosition: currentParagraphIndexRef.current,
+        settingsBefore: previousSettings,
+        settingsAfter: nextSettings,
+        groupId: currentGroup?.id ?? "",
+        workId: currentWorkRef.current.workId,
+        layoutMode: layoutModeRef.current,
+        timer: null,
+      };
+      pendingReaderSettingsChangeRef.current = pending;
+    } else {
+      pending.settingsAfter = nextSettings;
+    }
+    if (pending.timer) clearTimeout(pending.timer);
+    pending.timer = setTimeout(flushPendingReaderSettingsChange, 700);
+  };
+
     const startReadingSession = async () => {
     if (!authUser) return;
     if (readingSessionIdRef.current) return;
@@ -3844,6 +4031,7 @@ void saveReadingEvent("layout_change", {
       viewportWidth,
       viewportHeight,
       orientation,
+      readerSettings: readerSettingsRef.current,
     };
 
     await setDoc(sessionRef, session);
@@ -3881,6 +4069,7 @@ void saveReadingEvent("layout_change", {
     if (isAutoScroll) changeAutoScroll(false);
     const now = Date.now();
     flushPendingAutoScrollSpeedChange();
+    flushPendingReaderSettingsChange();
     const unitsLength = readingUnitsLengthRef.current;
 
     const endIndex =
@@ -6628,10 +6817,17 @@ if (readingSessionIdRef.current) {
                   </p>
                 </div>
 
-                <div className="text-sm text-gray-500">
-                  {hasSelectedWork
-                    ? `${currentParagraphIndex + 1}区切り目 ／ ${readingPercent}%`
-                    : "未選択"}
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <span>
+                    {hasSelectedWork
+                      ? `${currentParagraphIndex + 1}区切り目 ／ ${readingPercent}%`
+                      : "未選択"}
+                  </span>
+                  <ReadingSettingsPanel
+                    settings={readerSettings}
+                    onChange={handleReaderSettingsChange}
+                    onReset={() => handleReaderSettingsChange(DEFAULT_READER_SETTINGS)}
+                  />
                 </div>
               </div>
             </div>
@@ -6639,7 +6835,8 @@ if (readingSessionIdRef.current) {
             <div
               ref={readingAreaRef}
               onScroll={updateActiveUnitByCenter}
-              className={`reta-reader-body relative h-[calc(100dvh-11rem)] min-h-[420px] px-4 py-6 sm:h-[72vh] sm:px-8 sm:py-8 md:h-[74vh] md:px-10 lg:h-[78vh] lg:px-14 lg:py-10 ${
+              style={readerContentStyle}
+              className={`reta-reader-body reader-theme-${readerSettings.background} relative h-[calc(100dvh-11rem)] min-h-[420px] px-4 py-6 sm:h-[72vh] sm:px-8 sm:py-8 md:h-[74vh] md:px-10 lg:h-[78vh] lg:px-14 lg:py-10 ${
                 layoutMode === "horizontal"
                   ? "overflow-y-auto overflow-x-hidden"
                   : "overflow-x-auto overflow-y-hidden"
