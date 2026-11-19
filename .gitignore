@@ -24,6 +24,20 @@
 .DS_Store
 *.pem
 
+# Local source snapshots and working backups (keep the files on disk).
+*.bak
+*.bak.*
+*.before
+*.before.*
+*.before-*
+*.orig
+*.old
+/backups/
+
+# Local OCR and book-proofreading materials; not required by the app runtime.
+/book/
+/docs/research/
+
 # debug
 npm-debug.log*
 yarn-debug.log*
