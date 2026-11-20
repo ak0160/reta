@@ -1,11 +1,7 @@
 // next.config.ts uses /reta in both development and production.
 const BASE_PATH = "/reta";
 
-export type StoryKey =
-  | "wagahai"
-  | "dashi"
-  | "hakuchumu"
-  | "megachurch";
+export type StoryKey = "wagahai";
 
 export const stories = {
   wagahai: {
@@ -13,30 +9,6 @@ export const stories = {
     author: "夏目漱石",
     textFile: `${BASE_PATH}/texts/wagahaiwa_nekodearu.txt`,
     textSource: "aozora" as const,
-    paragraphs: [],
-  },
-
-  dashi: {
-    title: "だしの取り方",
-    author: "北大路魯山人",
-    textFile: `${BASE_PATH}/texts/dashi.txt`,
-    textSource: "aozora" as const,
-    paragraphs: [],
-  },
-
-  hakuchumu: {
-    title: "白昼夢",
-    author: "江戸川乱歩",
-    textFile: `${BASE_PATH}/texts/hakuchumu.txt`,
-    textSource: "aozora" as const,
-    paragraphs: [],
-  },
-
-  megachurch: {
-    title: "In The Megachurch",
-    author: "朝井リョウ",
-    textFile: `${BASE_PATH}/texts/megachurch.txt`,
-    textSource: "ocr" as const,
     paragraphs: [],
   },
 };

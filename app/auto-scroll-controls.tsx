@@ -21,22 +21,31 @@ export default function AutoScrollControls({ speed, playing, presets, onPresetsC
     setDraft(Object.fromEntries(AUTO_SCROLL_PRESET_LABELS.map(([key]) => [key, String(presets[key])])) as Record<AutoScrollPresetKey, string>);
     setError(""); setEditing(true);
   };
-  const button = "rounded-lg border border-[#eed5d8] bg-white px-3 py-2 text-xs font-bold text-[#a6445a] disabled:opacity-40";
-  return <div className="space-y-3">
+  const button = "reta-auto-scroll-button rounded-lg border border-[#ece5e5] bg-white px-2.5 py-2 text-xs font-semibold text-[#685b5e] transition hover:bg-[#fff7f8] disabled:opacity-40";
+  return <div className="reta-auto-scroll-controls space-y-2.5">
     <div className="flex items-center justify-between gap-2">
-      <label htmlFor={id} className="text-xs font-bold text-gray-600">速度 <span className="tabular-nums text-[#a6445a]">{speed} / 100</span></label>
-      <button type="button" onClick={onToggle} aria-label={playing ? "自動スクロールを一時停止" : "自動スクロールを再生"} className={button}>{playing ? "Ⅱ 一時停止" : "▶ 再生"}</button>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-gray-700">オートスクロール</p>
+        <p className="text-[0.68rem] text-gray-500">{playing ? "再生中" : "停止中"}</p>
+      </div>
+      <button type="button" onClick={onToggle} aria-label={playing ? "自動スクロールを一時停止" : "自動スクロールを再生"} aria-pressed={playing} className="reta-auto-scroll-play">
+        <span aria-hidden="true">{playing ? "Ⅱ" : "▶"}</span><span>{playing ? "停止" : "再生"}</span>
+      </button>
+    </div>
+    <div className="flex items-center justify-between gap-2">
+      <label htmlFor={id} className="text-xs font-medium text-gray-600">速度</label>
+      <span className="tabular-nums text-sm font-semibold text-[#a6445a]">{speed} / 100</span>
     </div>
     <div className="flex items-center gap-2">
       <button type="button" disabled={speed <= 1} onClick={() => onSpeedChange(speed - 1)} aria-label="速度を1下げる" className={button}>−1</button>
-      <input id={id} type="range" min={1} max={100} step={1} value={speed} onChange={event => onSpeedChange(Number(event.target.value))} className="min-w-0 flex-1 accent-[#bf596f]" />
+      <input id={id} type="range" min={1} max={100} step={1} value={speed} onChange={event => onSpeedChange(Number(event.target.value))} className="reta-auto-scroll-range min-w-0 flex-1 accent-[#bf596f]" />
       <button type="button" disabled={speed >= 100} onClick={() => onSpeedChange(speed + 1)} aria-label="速度を1上げる" className={button}>＋1</button>
     </div>
-    <div className="grid grid-cols-2 gap-2">
-      {AUTO_SCROLL_PRESET_LABELS.map(([key, label]) => <button key={key} type="button" onClick={() => onSpeedChange(presets[key])} aria-pressed={speed === presets[key]} className={`${button} ${speed === presets[key] ? "!bg-[#fcf0f1]" : ""}`}>{label}（{presets[key]}）</button>)}
+    <div className="reta-auto-scroll-presets">
+      {AUTO_SCROLL_PRESET_LABELS.map(([key, label]) => <button key={key} type="button" onClick={() => onSpeedChange(presets[key])} aria-pressed={speed === presets[key]} className={`reta-auto-scroll-preset ${speed === presets[key] ? "is-selected" : ""}`}>{label} <span>({presets[key]})</span></button>)}
     </div>
-    {!editing ? <button type="button" onClick={startEditing} className="text-xs text-[#a6445a] underline underline-offset-4">自分の速度を設定</button> : <div className="space-y-3 rounded-xl border border-[#eed5d8] bg-[#fff8fa] p-3">
-      <p className="text-xs font-bold text-gray-600">プリセットを自分好みに（1〜100）</p>
+    {!editing ? <button type="button" onClick={startEditing} className="reta-auto-scroll-edit"><span aria-hidden="true">⚙</span> 自分の速度を設定 <span aria-hidden="true" className="ml-auto">›</span></button> : <div className="space-y-3 rounded-xl border border-[#f0e1e3] bg-[#fff9fa] p-3">
+      <p className="text-xs font-semibold text-gray-600">プリセットを自分好みに（1〜100）</p>
       <div className="grid grid-cols-2 gap-3">{AUTO_SCROLL_PRESET_LABELS.map(([key, label]) => <label key={key} htmlFor={`${id}-${key}`} className="grid gap-1 text-xs text-gray-600">
         {label}<input id={`${id}-${key}`} type="number" min={1} max={100} step={1} value={draft[key]} onChange={event => { setDraft(current => ({ ...current, [key]: event.target.value })); setError(""); }} className="min-w-0 w-full rounded-lg border border-[#eed5d8] bg-white px-2 py-2 text-sm outline-none focus:border-[#bf596f]" />
       </label>)}</div>
@@ -51,6 +60,6 @@ export default function AutoScrollControls({ speed, playing, presets, onPresetsC
         <button type="button" className="text-xs text-gray-500" onClick={() => { setDraft(Object.fromEntries(AUTO_SCROLL_PRESET_LABELS.map(([key]) => [key, String(DEFAULT_AUTO_SCROLL_PRESETS[key])])) as Record<AutoScrollPresetKey, string>); setError(""); }}>初期値に戻す</button>
       </div>
     </div>}
-    <p role="status" className="text-[0.65rem] leading-relaxed text-gray-500">{syncMessage}</p>
+    <p role="status" className="border-t border-gray-100 pt-2 text-[0.65rem] leading-relaxed text-gray-500">{syncMessage}</p>
   </div>;
 }

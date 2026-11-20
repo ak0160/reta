@@ -1713,8 +1713,10 @@ export default function Home() {
   ]);
 
   const [mobilePanel, setMobilePanel] = useState<
-    "controls" | "reaction" | "more" | null
+    "controls" | "reaction" | "search" | "more" | null
   >(null);
+  const [isImmersive, setIsImmersive] = useState(false);
+  const [isImmersiveAutoSettingsOpen, setIsImmersiveAutoSettingsOpen] = useState(false);
   const [storyProgressSummaries, setStoryProgressSummaries] = useState<
     Partial<Record<StoryKey, StoryProgressSummary>>
   >({});
@@ -1730,6 +1732,7 @@ export default function Home() {
 
   const paragraphRefs = useRef<(HTMLDivElement | null)[]>([]);
   const currentParagraphIndexRef = useRef(0);
+  const pendingImmersiveIndexRef = useRef<number | null>(null);
   const usernameRef = useRef("");
   const selectedStoryRef = useRef<StoryKey>("wagahai");
   const currentWorkRef = useRef<CurrentWork>(createPresetWork("wagahai"));
@@ -5409,6 +5412,37 @@ useEffect(() => {
     lockViewportToProgress(index, mode);
   };
 
+  const changeImmersiveMode = (enabled: boolean) => {
+    if (enabled === isImmersive) return;
+    pendingImmersiveIndexRef.current = currentParagraphIndexRef.current;
+    isProgrammaticScrollRef.current = true;
+    restoreGuardUntilRef.current = Date.now() + 600;
+    setIsImmersiveAutoSettingsOpen(false);
+    setIsImmersive(enabled);
+  };
+
+  useEffect(() => {
+    const index = pendingImmersiveIndexRef.current;
+    if (index === null) return;
+    pendingImmersiveIndexRef.current = null;
+
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        scrollToFocus(index, layoutModeRef.current);
+        window.setTimeout(() => {
+          isProgrammaticScrollRef.current = false;
+          restoreGuardUntilRef.current = 0;
+        }, 450);
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [isImmersive, readingUnits.length]);
+
   const updateActiveUnitByCenter = () => {
     if (Date.now() < restoreGuardUntilRef.current) return;
     if (isProgrammaticScrollRef.current) return;
@@ -5596,6 +5630,7 @@ useEffect(() => {
     let virtualScrollTop = readingArea.scrollTop;
 
     const updateReadingPositionForOthers = () => {
+      if (Date.now() < restoreGuardUntilRef.current || isProgrammaticScrollRef.current) return;
       const areaRect = readingArea.getBoundingClientRect();
 
       let nearestIndex = currentParagraphIndexRef.current;
@@ -5639,6 +5674,14 @@ useEffect(() => {
     };
 
     const smoothScroll = (now: number) => {
+      if (Date.now() < restoreGuardUntilRef.current || isProgrammaticScrollRef.current) {
+        virtualScrollLeft = readingArea.scrollLeft;
+        virtualScrollTop = readingArea.scrollTop;
+        lastTime = now;
+        animationId = requestAnimationFrame(smoothScroll);
+        return;
+      }
+
       // Background tabs must not jump forward when animation frames resume.
       const deltaTime = Math.min(0.1, (now - lastTime) / 1000);
       lastTime = now;
@@ -5687,7 +5730,7 @@ useEffect(() => {
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [isAutoScroll, layoutMode, isAdmitted, AUTO_SCROLL_SPEED]);
+  }, [isAutoScroll, layoutMode, isAdmitted, AUTO_SCROLL_SPEED, isImmersive]);
 
   const handleAddReaction = async () => {
     if (!authUser) return;
@@ -6418,12 +6461,12 @@ if (readingSessionIdRef.current) {
     <main
       tabIndex={0}
       onKeyDown={handleReaderKeyDown}
-      className="reta-workspace min-h-screen bg-[#faf7f3] px-2 pb-24 pt-2 outline-none sm:px-4 sm:pb-24 sm:pt-4 lg:py-6"
+      className={`reta-workspace min-h-screen bg-[#faf7f3] px-2 pb-24 pt-2 outline-none sm:px-4 sm:pb-24 sm:pt-4 lg:py-6 ${isImmersive ? "is-immersive" : ""} ${isImmersive && layoutMode === "horizontal" ? "is-horizontal-immersive" : ""}`}
     >
       <div className="mx-auto max-w-7xl">
-        <div className="mb-3 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
-        {!currentGroup && <button type="button" onClick={returnToGroupSelection} className="mb-3 rounded-xl border border-[#eed5d8] bg-white px-4 py-2 text-sm text-[#a6445a]">グループ選択へ戻る</button>}
-        {currentGroup && <GroupWorkSharingPanel
+        <div className="reta-workspace-top-actions mb-3 flex justify-end"><FriendsPanel key={authUser.uid} uid={authUser.uid} username={username} /></div>
+        {!currentGroup && <button type="button" onClick={returnToGroupSelection} className="reta-return-group mb-3 rounded-xl border border-[#eed5d8] bg-white px-4 py-2 text-sm text-[#a6445a]">グループ選択へ戻る</button>}
+        {currentGroup && <div className="reta-workspace-sharing"><GroupWorkSharingPanel
           key={`${authUser.uid}:${currentGroup.id}`}
           uid={authUser.uid} username={username} groupId={currentGroup.id}
           hasSelectedWork={hasSelectedWork}
@@ -6451,7 +6494,7 @@ if (readingSessionIdRef.current) {
             setParticipants([]);
             setReactions([]);
           }}
-        />}
+        /></div>}
         <header className="reta-reader-header mb-3 rounded-2xl border border-[#eee3df] bg-white px-4 py-3 shadow-[0_10px_28px_rgba(30,41,59,0.06)] lg:hidden">
           <div className="flex items-start justify-between gap-3">
             <img
@@ -6797,7 +6840,7 @@ if (readingSessionIdRef.current) {
           </div>
         </header>
 
-        <div className="grid gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+        <div className="reta-reader-grid grid gap-3 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
           <section className={`reta-reader-card overflow-hidden rounded-2xl border border-[#eee3df] bg-[#fffdfa] shadow-[0_14px_34px_rgba(30,41,59,0.07)] sm:rounded-[1.75rem] ${layoutMode === "horizontal" ? "is-horizontal" : ""}`}>
             <div className="reta-reader-card-heading border-b border-gray-100 px-5 py-4">
               <div className="flex items-center justify-between">
@@ -6823,6 +6866,11 @@ if (readingSessionIdRef.current) {
                       ? `${currentParagraphIndex + 1}区切り目 ／ ${readingPercent}%`
                       : "未選択"}
                   </span>
+                  {!isImmersive && <button
+                    type="button"
+                    onClick={() => changeImmersiveMode(true)}
+                    className="rounded-full border border-[#eed5d8] bg-white px-3 py-2 text-xs font-bold text-[#a6445a] transition hover:bg-[#fff4f6]"
+                  >全画面</button>}
                   <ReadingSettingsPanel
                     settings={readerSettings}
                     onChange={handleReaderSettingsChange}
@@ -6835,6 +6883,14 @@ if (readingSessionIdRef.current) {
             <div
               ref={readingAreaRef}
               onScroll={updateActiveUnitByCenter}
+              onClickCapture={event => {
+                if (!isImmersive) return;
+                const target = event.target;
+                if (target instanceof Element && target.closest("button, a, input, textarea, select, [role='button']")) return;
+                event.preventDefault();
+                event.stopPropagation();
+                changeImmersiveMode(false);
+              }}
               style={readerContentStyle}
               className={`reta-reader-body reader-theme-${readerSettings.background} relative h-[calc(100dvh-11rem)] min-h-[420px] px-4 py-6 sm:h-[72vh] sm:px-8 sm:py-8 md:h-[74vh] md:px-10 lg:h-[78vh] lg:px-14 lg:py-10 ${
                 layoutMode === "horizontal"
@@ -7086,15 +7142,59 @@ if (readingSessionIdRef.current) {
               )}
             </div>
 
-            <div className="reta-reading-map border-t border-gray-100 px-6 py-5">
-              <div className="reta-map-heading mb-3 flex items-center justify-between text-xs text-gray-500">
-                <span>Readhead</span>
-
-                <span>
-                  {currentParagraphIndex + 1} / {readingUnits.length} 区切り
-                </span>
+            <div
+              className={`reta-reading-map border-t border-gray-100 px-6 py-5 ${layoutMode === "horizontal" ? "reta-horizontal-readhead" : ""}`}
+              style={isImmersive || layoutMode === "horizontal" ? {
+                backgroundColor: readerSettings.background === "dark" ? "#222222"
+                  : readerSettings.background === "sepia" ? "#F2E5CD"
+                    : readerSettings.background === "white" ? "#ffffff" : "#fffdfa",
+                color: readerSettings.background === "dark" ? "#ffffff" : "#59454b",
+              } : undefined}
+            >
+              <div className="reta-readhead-toolbar">
+                <div className="reta-readhead-status">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="font-semibold">Readhead</span>
+                    <span className="truncate">{currentParagraphIndex + 1} / {readingUnits.length} 区切り</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span>{readingPercent}%</span>
+                  </span>
+                </div>
+                {isImmersive && layoutMode !== "horizontal" && <button
+                  type="button"
+                  onClick={() => changeImmersiveMode(false)}
+                  aria-label="全画面表示から戻る"
+                  className="reta-immersive-toggle rounded-full border border-[#eed5d8] bg-white px-3 py-2 text-xs font-bold text-[#a6445a] transition hover:bg-[#fff4f6]"
+                >戻る</button>}
+                {isImmersive && layoutMode !== "horizontal" && <button
+                  type="button"
+                  onClick={() => changeAutoScroll(!isAutoScroll)}
+                  aria-label={isAutoScroll ? "オートスクロールを一時停止" : "オートスクロールを開始"}
+                  aria-pressed={isAutoScroll}
+                  className="reta-immersive-control"
+                >{isAutoScroll ? "Ⅱ" : "▶"}</button>}
+                {isImmersive && layoutMode !== "horizontal" && <button
+                  type="button"
+                  onClick={() => setIsImmersiveAutoSettingsOpen(value => !value)}
+                  aria-expanded={isImmersiveAutoSettingsOpen}
+                  aria-controls="reta-immersive-auto-settings"
+                  className="reta-immersive-control reta-immersive-speed-button"
+                >速度 {autoSpeed}</button>}
               </div>
-
+              {isImmersive && layoutMode !== "horizontal" && isImmersiveAutoSettingsOpen && <div id="reta-immersive-auto-settings" className="reta-immersive-auto-settings">
+                <span className="text-[0.6rem]">オート速度 {autoSpeed} / 100</span>
+                <input
+                  aria-label="オートスクロール速度"
+                  type="range"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={autoSpeed}
+                  onChange={event => handleAutoSpeedChange(Number(event.target.value))}
+                />
+              </div>}
+              <div id="reta-readhead-details" className="reta-readhead-details">
               <ReadingMapReactions
                 key={`${authUser.uid}:${currentGroup?.id ?? ""}:${currentWork.workId}:${selectedStory}:${layoutMode}`}
                 vertical={layoutMode === "horizontal"}
@@ -7114,6 +7214,10 @@ if (readingSessionIdRef.current) {
                       participant.paragraphIndex,
                       readingUnits.length,
                     );
+                    const participantColor = colorsForParticipant(participant.id);
+                    const panelColor = readerSettings.background === "dark" ? "#222222"
+                      : readerSettings.background === "sepia" ? "#F2E5CD"
+                        : readerSettings.background === "white" ? "#ffffff" : "#fffdfa";
 
                     return (
                       <div
@@ -7129,7 +7233,14 @@ if (readingSessionIdRef.current) {
                         }区切り目`}
                       >
                         <div className="reta-map-dot rounded-full" style={{ backgroundColor: colorsForParticipant(participant.id).dot }} />
-                        <div className="reta-map-name max-w-14 truncate text-[0.6rem] text-gray-600">
+                        <div
+                          className="reta-map-name max-w-14 truncate text-[0.6rem] text-gray-600"
+                          style={layoutMode === "horizontal" ? {
+                            backgroundColor: `color-mix(in srgb, ${participantColor.dot} 22%, ${panelColor})`,
+                            borderColor: participantColor.dot,
+                            color: readerSettings.background === "dark" ? "#FFFFFF" : participantColor.text,
+                          } : undefined}
+                        >
                           {getDisplayName(participant.name)}
                         </div>
                       </div>
@@ -7151,7 +7262,14 @@ if (readingSessionIdRef.current) {
                     title={`自分：${currentParagraphIndex + 1}区切り目`}
                   >
                     <div className="reta-map-dot rounded-full bg-blue-400" />
-                    <div className="reta-map-name max-w-14 truncate text-[0.6rem] text-gray-600">
+                    <div
+                      className="reta-map-name max-w-14 truncate text-[0.6rem] text-gray-600"
+                      style={layoutMode === "horizontal" ? {
+                        backgroundColor: `color-mix(in srgb, #60a5fa 22%, ${readerSettings.background === "dark" ? "#222222" : readerSettings.background === "sepia" ? "#F2E5CD" : readerSettings.background === "white" ? "#ffffff" : "#fffdfa"})`,
+                        borderColor: "#60a5fa",
+                        color: readerSettings.background === "dark" ? "#FFFFFF" : "#713f12",
+                      } : undefined}
+                    >
                       {getDisplayName(username || "asuma")}
                     </div>
                   </div>
@@ -7169,106 +7287,127 @@ if (readingSessionIdRef.current) {
                   リアクション
                 </span>
               </div>
+              </div>
+              {layoutMode === "horizontal" && (isImmersive ? <div className="reta-horizontal-readhead-actions">
+                <button
+                  type="button"
+                  onClick={() => changeImmersiveMode(false)}
+                  aria-label="全画面表示から戻る"
+                  className="reta-horizontal-readhead-button"
+                >戻る</button>
+                <button
+                  type="button"
+                  onClick={() => changeAutoScroll(!isAutoScroll)}
+                  aria-label={isAutoScroll ? "オートスクロールを一時停止" : "オートスクロールを開始"}
+                  aria-pressed={isAutoScroll}
+                  className="reta-horizontal-readhead-button"
+                >{isAutoScroll ? "Ⅱ 停止" : "▶ 再生"}</button>
+                <button
+                  type="button"
+                  onClick={() => setIsImmersiveAutoSettingsOpen(value => !value)}
+                  aria-expanded={isImmersiveAutoSettingsOpen}
+                  aria-controls="reta-immersive-auto-settings"
+                  className="reta-horizontal-readhead-button"
+                >速度 {autoSpeed}</button>
+              </div> : null)}
+              {isImmersive && layoutMode === "horizontal" && isImmersiveAutoSettingsOpen && <div id="reta-immersive-auto-settings" className="reta-horizontal-readhead-speed">
+                <span>オート速度 {autoSpeed} / 100</span>
+                <input
+                  aria-label="オートスクロール速度"
+                  type="range"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={autoSpeed}
+                  onChange={event => handleAutoSpeedChange(Number(event.target.value))}
+                />
+              </div>}
             </div>
           </section>
 
           <aside className="reta-reader-controls hidden space-y-4 lg:sticky lg:top-4 lg:block lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
-            <div className="rounded-[1.5rem] border border-[#eee3df] bg-white p-4 shadow-[0_10px_28px_rgba(30,41,59,0.06)]">
+            <div className="reta-reading-mode-panel rounded-[1.25rem] border border-[#eee3df] bg-white p-4 shadow-[0_6px_20px_rgba(30,41,59,0.04)]">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[0.65rem] font-bold tracking-[0.25em] text-[#a6445a]">
                     READING MODE
                   </p>
-                  <h2 className="mt-1 text-base font-bold text-gray-900">
-                    読み方を選ぶ
+                  <h2 className="mt-1 text-sm font-semibold text-gray-900">
+                    読書モード
                   </h2>
                 </div>
-                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[0.65rem] font-bold text-gray-500">
+                <span className="max-w-28 truncate rounded-full bg-gray-50 px-2 py-1 text-[0.62rem] font-medium text-gray-500">
                   {readingProgressNotice || "自動保存"}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+              <div className="reta-mode-picker grid grid-cols-2 gap-1 rounded-xl bg-gray-50 p-1">
                 <button
                   type="button"
                   onClick={() => changeReaderMode("reading")}
-                  className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "reading" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                  className={`rounded-lg px-2 py-2 text-sm font-semibold transition ${readerMode === "reading" ? "is-active bg-[#fff0f3] text-[#a6445a]" : "text-gray-500 hover:bg-white"}`}
                 >
-                  ひとりで読む
+                  <span className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" strokeWidth="1.6"/><path d="M4.5 17v-1.5a5.5 5.5 0 0 1 11 0V17z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/></svg>ひとりで読む</span>
                 </button>
                 <button
                   type="button"
                   disabled={!currentGroup}
                   onClick={() => changeReaderMode("shared")}
-                  className={`rounded-lg px-3 py-2.5 text-xs font-bold transition ${readerMode === "shared" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                  className={`rounded-lg px-2 py-2 text-sm font-semibold transition ${readerMode === "shared" ? "is-active bg-[#fff0f3] text-[#a6445a]" : "text-gray-500 hover:bg-white"}`}
                 >
-                  一緒に読む
+                  <span className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none"><circle cx="7" cy="6" r="2.5" stroke="currentColor" strokeWidth="1.5"/><circle cx="14" cy="7" r="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 16v-1.2a4.5 4.5 0 0 1 9 0V16zM12 12.2a3.7 3.7 0 0 1 5.5 3V16h-4" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>一緒に読む</span>
                 </button>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="mt-2.5">
                 <button
                   type="button"
                   onClick={() => {
-                    void startReadingSession().catch((error) => {
-                      console.error("読書セッション開始失敗", error);
-                    });
+                    const action = readingSessionIdRef.current ? endReadingSession : startReadingSession;
+                    void action().catch((error) => console.error("読書セッション操作失敗", error));
                   }}
-                  disabled={Boolean(readingSessionIdRef.current)}
-                  className="rounded-xl bg-gray-900 px-3 py-3 text-xs font-bold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={!readingSessionIdRef.current && readingUnits.length === 0}
+                  className="reta-reading-session-button rounded-lg bg-[#bf596f] px-3 py-2.5 text-xs font-semibold text-white transition hover:bg-[#a94d62] disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  ▶ 読みはじめる
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void endReadingSession().catch((error) => {
-                      console.error("読書セッション終了失敗", error);
-                    });
-                  }}
-                  disabled={!readingSessionIdRef.current}
-                  className="rounded-xl border border-gray-300 bg-white px-3 py-3 text-xs font-bold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  ■ 読み終える
+                  {readingSessionIdRef.current ? "■ 読み終える" : "▶ 読みはじめる"}
                 </button>
               </div>
 
-              <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
+              <div className="mt-3">
+                <p className="mb-1.5 text-sm font-medium text-gray-500">本文の表示形式</p>
+                <div className="reta-layout-picker grid grid-cols-3 gap-1 rounded-xl bg-gray-50 p-1">
                 <button
                   type="button"
                   onClick={() => changeLayoutModeKeepingPosition("normal")}
-                  className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "normal" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                  className={`rounded-lg px-2 py-2 text-xs font-semibold whitespace-nowrap transition ${layoutMode === "normal" ? "is-active bg-white text-[#a6445a]" : "text-gray-500 hover:bg-white"}`}
                 >
                   標準
                 </button>
                 <button
                   type="button"
                   onClick={() => changeLayoutModeKeepingPosition("grouped")}
-                  className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "grouped" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                  className={`rounded-lg px-2 py-2 text-xs font-semibold whitespace-nowrap transition ${layoutMode === "grouped" ? "is-active bg-white text-[#a6445a]" : "text-gray-500 hover:bg-white"}`}
                 >
-                  <span className="block text-center leading-snug" aria-label="2文グループ">2文<br />グループ</span>
+                  2文
                 </button>
                 <button
                   type="button"
                   onClick={() => changeLayoutModeKeepingPosition("horizontal")}
-                  className={`rounded-lg px-2 py-2.5 text-[0.7rem] font-bold transition ${layoutMode === "horizontal" ? "bg-white text-gray-950 shadow-sm" : "text-gray-500"}`}
+                  className={`rounded-lg px-2 py-2 text-xs font-semibold whitespace-nowrap transition ${layoutMode === "horizontal" ? "is-active bg-white text-[#a6445a]" : "text-gray-500 hover:bg-white"}`}
                 >
                   横書き
                 </button>
+                </div>
               </div>
 
-              <details className="group mt-3 rounded-xl border border-gray-100 bg-[#fffcfa]">
-                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-3 text-xs font-bold text-gray-700">
-                  <span>自動スクロール</span>
-                  <span
-                    className={
-                      isAutoScroll ? "text-[#a6445a]" : "text-gray-400"
-                    }
-                  >
+              <details className="reta-auto-scroll-disclosure group mt-3 rounded-xl border border-gray-100 bg-[#fffefd]">
+                <summary className="reta-auto-scroll-summary cursor-pointer list-none px-3 py-2.5 text-sm font-semibold text-gray-700">
+                  <span className="reta-auto-scroll-summary-title">オートスクロール</span>
+                  <span className={`reta-auto-scroll-summary-state ${isAutoScroll ? "is-playing" : ""}`}>
                     {`${autoSpeed} / 100 · ${isAutoScroll ? "再生中" : "停止中"}`}
                   </span>
                 </summary>
-                <div className="border-t border-gray-100 px-3 pb-3 pt-3">
+                <div className="border-t border-gray-100 px-3 pb-3 pt-2.5">
                   <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={handleAutoSpeedChange} onToggle={() => changeAutoScroll(!isAutoScroll)} />
                 </div>
               </details>
@@ -7278,8 +7417,8 @@ if (readingSessionIdRef.current) {
                   <span className="text-[0.68rem] font-bold text-gray-500">
                     しおり
                   </span>
-                  <span className="text-[0.6rem] text-gray-400">
-                    4か所まで
+                  <span className="text-[0.62rem] tabular-nums text-gray-400">
+                    {bookmarks.filter(bookmark => bookmark !== null).length} / 4
                   </span>
                 </div>
 
@@ -7315,10 +7454,10 @@ if (readingSessionIdRef.current) {
                           className={`w-full rounded-xl px-1 py-2.5 text-center text-xs font-bold transition ${
                             hasBookmark
                               ? "bg-[#fff3d6] text-[#8b5d1e] hover:bg-[#fbe8b8]"
-                              : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                              : "bg-gray-50 text-gray-400 hover:bg-[#fff0f3] hover:text-[#a6445a]"
                           }`}
                         >
-                          {hasBookmark ? `${percent}%` : "＋"}
+                          {hasBookmark ? `${percent}%` : <span aria-label="しおりを追加" className="inline-flex items-center justify-center"><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none"><path d="M5 3.5h10v13l-5-3-5 3z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/><path d="M10 6.5v5M7.5 9h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></span>}
                         </button>
 
                         {hasBookmark && (
@@ -7571,13 +7710,36 @@ if (readingSessionIdRef.current) {
         </div>
       </div>
 
+      {isImmersive && <div className="reta-immersive-actions" role="toolbar" aria-label="全画面表示の操作">
+        <ReadingSettingsPanel
+          settings={readerSettings}
+          onChange={handleReaderSettingsChange}
+          onReset={() => handleReaderSettingsChange(DEFAULT_READER_SETTINGS)}
+        />
+        {([
+          ["controls", "⚙", "しおり・オートスクロールなどの操作"],
+          ["reaction", "♡", "リアクション"],
+          ["search", "⌕", "用語検索"],
+          ["more", "•••", "その他の操作"],
+        ] as const).map(([panel, icon, label]) => (
+          <button
+            key={panel}
+            type="button"
+            aria-label={label}
+            aria-pressed={mobilePanel === panel}
+            onClick={() => setMobilePanel(current => current === panel ? null : panel)}
+            className="reta-immersive-action-button"
+          >{icon}</button>
+        ))}
+      </div>}
+
       {mobilePanel && (
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className={`fixed inset-0 ${isImmersive ? "z-[80]" : "z-40 lg:hidden"}`}>
           <button
             type="button"
             aria-label="メニューを閉じる"
             onClick={() => setMobilePanel(null)}
-            className="absolute inset-0 bg-black/25"
+            className="reta-mobile-panel-backdrop absolute inset-0 bg-black/10"
           />
 
           <div className="reta-mobile-panel absolute inset-x-0 bottom-[4.9rem] mx-auto max-h-[70dvh] w-[calc(100%-1rem)] max-w-xl overflow-y-auto rounded-[1.6rem] border border-[#eee3df] bg-[#fffdfa] p-4 shadow-[0_-16px_50px_rgba(15,23,42,0.18)]">
@@ -7588,13 +7750,17 @@ if (readingSessionIdRef.current) {
                     ? "READING MODE"
                     : mobilePanel === "reaction"
                       ? "REACTION"
+                      : mobilePanel === "search"
+                        ? "SEARCH"
                       : "MORE"}
                 </p>
-                <h2 className="mt-1 text-lg font-black text-gray-950">
+                <h2 className="mt-1 text-base font-semibold text-gray-950">
                   {mobilePanel === "controls"
-                    ? "読み方を選ぶ"
+                    ? "読書モード"
                     : mobilePanel === "reaction"
                       ? "リアクション"
+                      : mobilePanel === "search"
+                        ? "用語検索"
                       : "その他"}
                 </h2>
               </div>
@@ -7609,16 +7775,14 @@ if (readingSessionIdRef.current) {
             </div>
 
             {mobilePanel === "controls" && (
-              <div className="space-y-4">
+              <div className="reta-reading-mode-panel space-y-3">
                 <div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["start", "end"] as const).map(action => (
+                  <div>
+                    {([readingSessionIdRef.current ? "end" : "start"] as const).map(action => (
                       <button
                         key={action}
                         type="button"
-                        disabled={mobileSessionPending || (action === "start"
-                          ? Boolean(readingSessionIdRef.current) || readingUnits.length === 0
-                          : !readingSessionIdRef.current)}
+                        disabled={mobileSessionPending || (action === "start" && readingUnits.length === 0)}
                         onClick={async () => {
                           setMobileSessionPending(true);
                           setMobileSessionError(null);
@@ -7632,9 +7796,7 @@ if (readingSessionIdRef.current) {
                             setMobileSessionPending(false);
                           }
                         }}
-                        className={`rounded-xl border px-2 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40 ${action === "start"
-                          ? "border-[#bf596f] bg-[#bf596f] text-white"
-                          : "border-[#eed5d8] bg-[#fffdfa] text-[#a6445a]"}`}
+                        className="reta-reading-session-button rounded-lg border border-[#bf596f] bg-[#bf596f] px-3 py-2.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {action === "start" ? "▶ 読みはじめる" : "■ 読み終える"}
                       </button>
@@ -7643,41 +7805,41 @@ if (readingSessionIdRef.current) {
                   {mobileSessionError && <p role="alert" className="mt-2 text-xs text-[#a6445a]">{mobileSessionError}</p>}
                 </div>
                 <div>
-                  <p className="mb-2 text-xs font-black text-gray-500">
-                    読み方
+                  <p className="mb-1.5 text-sm font-medium text-gray-500">
+                    読書モード
                   </p>
-                  <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+                  <div className="reta-mode-picker grid grid-cols-2 gap-1 rounded-xl bg-gray-50 p-1">
                     <button
                       type="button"
                       onClick={() => changeReaderMode("reading")}
-                      className={`rounded-lg px-3 py-3 text-sm font-bold ${
+                      className={`rounded-lg px-2 py-2.5 text-sm font-semibold ${
                         readerMode === "reading"
-                          ? "bg-white text-gray-950 shadow-sm"
-                          : "text-gray-500"
+                          ? "is-active bg-[#fff0f3] text-[#a6445a]"
+                          : "text-gray-500 hover:bg-white"
                       }`}
                     >
-                      ひとりで読む
+                      <span className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" strokeWidth="1.6"/><path d="M4.5 17v-1.5a5.5 5.5 0 0 1 11 0V17z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/></svg>ひとりで読む</span>
                     </button>
                     <button
                       type="button"
                       disabled={!currentGroup}
                   onClick={() => changeReaderMode("shared")}
-                      className={`rounded-lg px-3 py-3 text-sm font-bold ${
+                      className={`rounded-lg px-2 py-2.5 text-xs font-semibold ${
                         readerMode === "shared"
-                          ? "bg-white text-gray-950 shadow-sm"
-                          : "text-gray-500"
+                          ? "is-active bg-[#fff0f3] text-[#a6445a]"
+                          : "text-gray-500 hover:bg-white"
                       }`}
                     >
-                      一緒に読む
+                      <span className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap"><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none"><circle cx="7" cy="6" r="2.5" stroke="currentColor" strokeWidth="1.5"/><circle cx="14" cy="7" r="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 16v-1.2a4.5 4.5 0 0 1 9 0V16zM12 12.2a3.7 3.7 0 0 1 5.5 3V16h-4" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>一緒に読む</span>
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <p className="mb-2 text-xs font-black text-gray-500">
-                    レイアウト
+                  <p className="mb-1.5 text-sm font-medium text-gray-500">
+                    本文の表示形式
                   </p>
-                  <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
+                  <div className="reta-layout-picker grid grid-cols-3 gap-1 rounded-xl bg-gray-50 p-1">
                     {[
                       ["normal", "標準"],
                       ["grouped", "2文グループ"],
@@ -7689,39 +7851,37 @@ if (readingSessionIdRef.current) {
                         onClick={() =>
                           changeLayoutModeKeepingPosition(mode as LayoutMode)
                         }
-                        className={`rounded-lg px-2 py-3 text-xs font-bold ${
+                        className={`rounded-lg px-2 py-2.5 text-sm font-semibold whitespace-nowrap ${
                           layoutMode === mode
-                            ? "bg-white text-gray-950 shadow-sm"
-                            : "text-gray-500"
+                            ? "is-active bg-white text-[#a6445a]"
+                            : "text-gray-500 hover:bg-white"
                         }`}
                       >
-                        {mode === "grouped" ? (
-                          <span className="block text-center leading-snug" aria-label="2文グループ">2文<br />グループ</span>
-                        ) : label}
+                        {mode === "grouped" ? "2文" : label}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="rounded-2xl bg-[#fcf0f1] p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-black text-gray-800">
-                      自動スクロール
-                    </span>
-                    <span className="text-xs font-bold text-[#a6445a]">
+                <details className="reta-auto-scroll-disclosure rounded-xl border border-gray-100 bg-[#fffefd] p-3">
+                  <summary className="reta-auto-scroll-summary cursor-pointer list-none text-sm font-semibold text-gray-700">
+                    <span className="reta-auto-scroll-summary-title">オートスクロール</span>
+                    <span className={`reta-auto-scroll-summary-state ${isAutoScroll ? "is-playing" : ""}`}>
                       {`${autoSpeed} / 100 · ${isAutoScroll ? "再生中" : "停止中"}`}
                     </span>
+                  </summary>
+                  <div className="mt-2 border-t border-gray-100 pt-2">
+                    <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={handleAutoSpeedChange} onToggle={() => changeAutoScroll(!isAutoScroll)} />
                   </div>
-                  <AutoScrollControls key={authUser?.uid ?? "guest"} speed={autoSpeed} presets={autoPresets} onPresetsChange={changeAutoPresets} syncMessage={autoSpeedSyncMessage} playing={isAutoScroll} onSpeedChange={handleAutoSpeedChange} onToggle={() => changeAutoScroll(!isAutoScroll)} />
-                </div>
+                </details>
 
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-xs font-black text-gray-500">
                       しおり
                     </span>
-                    <span className="text-[0.65rem] text-gray-400">
-                      4か所まで
+                    <span className="text-[0.68rem] tabular-nums text-gray-400">
+                      {bookmarks.filter(bookmark => bookmark !== null).length} / 4
                     </span>
                   </div>
 
@@ -7756,11 +7916,11 @@ if (readingSessionIdRef.current) {
                             }}
                             className={`w-full rounded-xl px-1 py-3 text-sm font-black ${
                               hasBookmark
-                                ? "bg-[#fff3d6] text-[#8b5d1e]"
-                                : "bg-gray-100 text-gray-400"
+                              ? "bg-[#fff3d6] text-[#8b5d1e]"
+                              : "bg-gray-50 text-gray-400 hover:bg-[#fff0f3] hover:text-[#a6445a]"
                             }`}
                           >
-                            {hasBookmark ? `${percent}%` : "＋"}
+                            {hasBookmark ? `${percent}%` : <span aria-label="しおりを追加" className="inline-flex items-center justify-center"><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none"><path d="M5 3.5h10v13l-5-3-5 3z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/><path d="M10 6.5v5M7.5 9h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></span>}
                           </button>
 
                           {hasBookmark && (
@@ -7875,6 +8035,35 @@ if (readingSessionIdRef.current) {
                     </div>
                   </>
                 )}
+              </div>
+            )}
+
+            {mobilePanel === "search" && (
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  autoFocus
+                  value={searchWord}
+                  onChange={event => {
+                    const nextWord = event.target.value;
+                    setSearchWord(nextWord);
+                    setSelectedWord(nextWord);
+                  }}
+                  onBlur={() => fetchWikiMeaning(searchWord)}
+                  placeholder="調べたい言葉を入力"
+                  aria-label="調べたい言葉"
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#bf596f]"
+                />
+                {searchWord ? <div className="rounded-xl bg-gray-50 p-3">
+                  <p className="font-bold text-gray-900">{selectedWord}</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-gray-600">
+                    {dictionary[searchWord] || wikiMeaning || (isSearchingMeaning ? "意味を調べています..." : "意味が見つかりませんでした")}
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <a className="flex-1 rounded-lg bg-white px-2 py-2 text-center text-xs font-bold" href={`https://kotobank.jp/word/${encodeURIComponent(searchWord)}`} target="_blank" rel="noreferrer">コトバンク</a>
+                    <a className="flex-1 rounded-lg bg-white px-2 py-2 text-center text-xs font-bold" href={`https://www.google.com/search?q=${encodeURIComponent(searchWord + " 意味")}`} target="_blank" rel="noreferrer">Google</a>
+                  </div>
+                </div> : <p className="text-xs text-gray-500">本文中の言葉をなぞるか、検索欄に入力してください。</p>}
               </div>
             )}
 

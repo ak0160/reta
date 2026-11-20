@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import {
   READING_BACKGROUND_OPTIONS,
   READING_FONT_LABELS,
@@ -20,6 +20,8 @@ export default function ReadingSettingsPanel({
   onReset: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [sheetHeight, setSheetHeight] = useState(38);
+  const dragStart = useRef<{ y: number; height: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -34,6 +36,19 @@ export default function ReadingSettingsPanel({
     onChange({ ...settings, [key]: value });
   };
 
+  const startSheetResize = (event: PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    dragStart.current = { y: event.clientY, height: sheetHeight };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const resizeSheet = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!dragStart.current) return;
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const delta = ((dragStart.current.y - event.clientY) / viewportHeight) * 100;
+    setSheetHeight(Math.max(30, Math.min(82, dragStart.current.height + delta)));
+  };
+
   return <>
     <button
       type="button"
@@ -44,25 +59,28 @@ export default function ReadingSettingsPanel({
       className="inline-flex h-10 min-w-10 items-center justify-center rounded-full border border-[#eed5d8] bg-white px-3 text-base font-semibold tracking-[-0.06em] text-[#a6445a] shadow-sm transition hover:bg-[#fff4f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bf7182]"
     >Aa</button>
     {open && <>
-      <button
-        type="button"
-        tabIndex={-1}
-        aria-label="読書設定を閉じる"
-        onClick={() => setOpen(false)}
-        className="fixed inset-0 z-[1090] cursor-default bg-black/10"
-      />
       <section
         role="dialog"
-        aria-modal="true"
         aria-label="読書設定"
-        className="fixed right-3 top-20 z-[1100] max-h-[calc(100dvh-6rem)] w-[min(23rem,calc(100vw-1.5rem))] overflow-y-auto rounded-[1.4rem] border border-[#eadadd] bg-[#fffdfa] p-4 text-[#3f3435] shadow-[0_18px_55px_rgba(54,34,38,0.2)] sm:right-6 sm:top-24 sm:p-5"
+        style={{ "--settings-sheet-height": `${sheetHeight}dvh` } as CSSProperties}
+        className="reading-settings-dialog fixed right-3 top-20 z-[1100] max-h-[calc(100dvh-6rem)] w-[min(23rem,calc(100vw-1.5rem))] overflow-y-auto rounded-[1.4rem] border border-[#eadadd] bg-[#fffdfa] p-4 text-[#3f3435] shadow-[0_18px_55px_rgba(54,34,38,0.2)] sm:right-6 sm:top-24 sm:p-5"
       >
+        <button
+          type="button"
+          aria-label="設定パネルの高さを調整"
+          className="reading-settings-sheet-handle"
+          onPointerDown={startSheetResize}
+          onPointerMove={resizeSheet}
+          onPointerUp={() => { dragStart.current = null; }}
+          onPointerCancel={() => { dragStart.current = null; }}
+          onClick={event => event.preventDefault()}
+        ><span aria-hidden="true" /></button>
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <p className="text-[0.62rem] font-bold tracking-[0.2em] text-[#b56d7d]">READING SETTINGS</p>
             <h2 className="mt-1 font-serif text-lg font-semibold">読書設定</h2>
           </div>
-          <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="rounded-full px-2 py-1 text-xl leading-none text-gray-400 hover:bg-[#faedef] hover:text-[#a6445a]">×</button>
+          <button type="button" onClick={() => setOpen(false)} aria-label="読書設定を閉じる" className="rounded-full px-2 py-1 text-xl leading-none text-gray-400 hover:bg-[#faedef] hover:text-[#a6445a]">×</button>
         </div>
 
         <fieldset>

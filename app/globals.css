@@ -2167,6 +2167,1302 @@ rt {
 .reta-workspace .reta-map-inline-note .reta-map-reaction-author { font-size: 11px; }
 .reta-workspace .reta-map-inline-note .reta-map-reaction-emoji { font-size: 15px; }
 .reta-workspace .reta-map-inline-note p { font-size: 12px; line-height: 1.8; }
+
+/* Portrait reading layout: keep the book visible and move controls into compact overlays. */
+.reta-readhead-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 0;
+  background: transparent;
+  color: #786a6d;
+  text-align: left;
+}
+
+.reta-readhead-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.reta-settings-sheet-handle {
+  display: none;
+}
+
+.reta-workspace .reta-readhead-details {
+  display: block;
+}
+
+.reading-settings-sheet-handle {
+  display: none;
+}
+
+@media (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
+  .reta-workspace {
+    min-height: 100dvh;
+    padding-top: max(0.25rem, env(safe-area-inset-top)) !important;
+    padding-right: max(0.5rem, env(safe-area-inset-right)) !important;
+    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom)) !important;
+    padding-left: max(0.5rem, env(safe-area-inset-left)) !important;
+  }
+
+  .reta-workspace > .max-w-7xl {
+    max-width: 68rem;
+  }
+
+  .reta-workspace .reta-workspace-top-actions {
+    margin-bottom: 0.35rem;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] {
+    display: block !important;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.7rem;
+    border-radius: 1rem;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:block"] {
+    display: none !important;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:first-child {
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:first-child > img {
+    width: 36px;
+    height: 36px;
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:first-child > div {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:first-child > button {
+    grid-column: 3;
+    grid-row: 1;
+    width: 36px;
+    height: 36px;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] h1 {
+    font-size: 1rem;
+    line-height: 1.35;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] h1 + span {
+    font-size: 0.6rem;
+  }
+
+  .reta-workspace .reta-reader-header[class~="lg:hidden"] > div:nth-child(2) {
+    margin-top: 0.35rem;
+  }
+
+  .reta-workspace .reta-reader-grid {
+    display: block;
+  }
+
+  .reta-workspace .reta-reader-controls {
+    display: none !important;
+  }
+
+  .reta-workspace .reta-reader-card:not(.is-horizontal) {
+    height: auto;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    border-radius: 1rem;
+  }
+
+  .reta-workspace .reta-reader-card-heading {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .reta-workspace .reta-reader-card-heading p {
+    font-size: 0.72rem;
+  }
+
+  .reta-workspace .reta-immersive-toggle {
+    display: inline-flex;
+    min-height: 2.25rem;
+    align-items: center;
+    white-space: nowrap;
+  }
+
+  .reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reader-body,
+  .reta-workspace .reta-reader-card.is-horizontal > .reta-reader-body {
+    height: clamp(320px, calc(100dvh - 16rem - env(safe-area-inset-bottom)), 760px) !important;
+    min-height: 320px !important;
+    padding: calc(0.5rem + 50px) 0.85rem 0.5rem !important;
+    scroll-padding-block: 1rem;
+    overscroll-behavior: contain;
+  }
+
+  .reta-workspace .is-horizontal > .reta-reading-map {
+    min-height: 0;
+    padding: 0.4rem 0.85rem;
+    border-top: 1px solid #eee3df;
+    border-left: 0;
+  }
+
+  .reta-workspace .reta-reading-map {
+    max-height: none;
+    padding: 0.35rem 0.85rem;
+    overflow: visible;
+  }
+
+  .reta-workspace .reta-readhead-toggle {
+    width: auto;
+    min-height: 1.05rem;
+    border-radius: 0.7rem;
+    padding: 0.05rem 0.1rem;
+    flex: 1;
+    font-size: 0.56rem;
+  }
+
+  .reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reading-map,
+  .reta-workspace .reta-reader-card.is-horizontal > .reta-reading-map {
+    padding: 0.08rem 0.45rem !important;
+  }
+
+  .reta-workspace .reta-immersive-toggle {
+    padding: 0.12rem 0.45rem;
+    font-size: 0.56rem;
+    line-height: 1.15;
+  }
+
+  .reta-workspace .reta-readhead-chevron {
+    transition: transform 160ms ease;
+  }
+
+  .reta-workspace .reta-reading-map.is-expanded .reta-readhead-chevron {
+    transform: rotate(180deg);
+  }
+
+  .reta-workspace .reta-map-heading {
+    display: none;
+  }
+
+  .reta-workspace .reta-readhead-details {
+    display: none;
+    max-height: 34dvh;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .reta-workspace .reta-readhead-details.is-open {
+    display: block;
+  }
+
+  .reta-workspace .reta-map-track {
+    margin-top: 2rem;
+  }
+
+  .reta-workspace .reta-map-legend {
+    margin-top: 0.75rem !important;
+  }
+
+  .reta-workspace .reta-mobile-nav {
+    display: block !important;
+    padding-top: 0.25rem;
+    padding-bottom: max(env(safe-area-inset-bottom), 0.25rem);
+  }
+
+  .reta-workspace .reta-mobile-nav button {
+    min-height: 2.75rem;
+    border-radius: 0.75rem;
+    padding-block: 0.25rem;
+  }
+
+  .reta-workspace .reta-mobile-nav button > span:first-child {
+    font-size: 1.1rem;
+    line-height: 1.2;
+  }
+
+  .reta-workspace .reta-mobile-panel-backdrop {
+    background: rgb(54 34 38 / 5%);
+  }
+
+  .reta-workspace .reta-mobile-panel {
+    bottom: calc(4.35rem + env(safe-area-inset-bottom));
+    max-height: min(72dvh, calc(100dvh - 5.5rem));
+    width: min(100%, 42rem);
+    border-radius: 1.35rem 1.35rem 0 0;
+    padding-bottom: 1rem;
+    overscroll-behavior: contain;
+  }
+
+  .reta-workspace.is-immersive {
+    padding: 0 !important;
+  }
+
+  .reta-workspace.is-immersive .reta-workspace-top-actions,
+  .reta-workspace.is-immersive .reta-workspace-sharing,
+  .reta-workspace.is-immersive .reta-reader-header,
+  .reta-workspace.is-immersive .reta-reader-card-heading,
+  .reta-workspace.is-immersive .reta-mobile-nav {
+    display: none !important;
+  }
+
+  .reta-workspace.is-immersive .reta-reading-map {
+    position: fixed;
+    z-index: 50;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    max-height: min(22dvh, 11rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-top: 1px solid rgb(120 106 109 / 20%);
+    border-radius: 0.9rem 0.9rem 0 0;
+    padding: 0.08rem 0.75rem calc(0.08rem + env(safe-area-inset-bottom));
+    box-shadow: 0 -5px 20px rgb(54 34 38 / 8%);
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-toggle {
+    min-height: 1.05rem;
+    color: inherit;
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-details {
+    max-height: 16dvh;
+  }
+
+  .reta-workspace.is-immersive > .max-w-7xl {
+    max-width: none;
+    height: 100dvh;
+  }
+
+  .reta-workspace.is-immersive .reta-reader-card:not(.is-horizontal) {
+    height: 100dvh;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .reta-workspace.is-immersive .reta-reader-card:not(.is-horizontal) > .reta-reader-body,
+  .reta-workspace.is-immersive .reta-reader-card.is-horizontal > .reta-reader-body {
+    height: 100dvh !important;
+    max-height: 100dvh;
+    padding-top: calc(0.5rem + 50px) !important;
+    padding-bottom: calc(min(22dvh, 11rem) + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (max-width: 639px) and (orientation: portrait) {
+  .reading-settings-dialog {
+    inset: auto 0 0;
+    width: 100%;
+    height: var(--settings-sheet-height, 38dvh);
+    max-height: calc(100dvh - env(safe-area-inset-top) - 0.5rem);
+    padding: 0.25rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+    border-radius: 1.35rem 1.35rem 0 0;
+    border-bottom: 0;
+    overscroll-behavior: contain;
+    box-shadow: 0 -12px 36px rgb(54 34 38 / 14%);
+  }
+
+  .reading-settings-sheet-handle {
+    display: flex;
+    width: 100%;
+    height: 1.45rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background: transparent;
+    touch-action: none;
+    cursor: ns-resize;
+  }
+
+  .reading-settings-sheet-handle > span {
+    width: 2.4rem;
+    height: 0.25rem;
+    border-radius: 999px;
+    background: #ddc8cb;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
+  .reading-settings-dialog {
+    top: max(1rem, env(safe-area-inset-top));
+    right: max(1rem, env(safe-area-inset-right));
+    width: min(22rem, calc(100vw - 2rem));
+    max-height: min(72dvh, calc(100dvh - 2rem));
+    padding: 1rem;
+    overscroll-behavior: contain;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reta-readhead-chevron { transition: none; }
+}
+
+/* Desktop immersion keeps only a full-width readhead bar at the bottom. */
+@media (min-width: 1025px) {
+  .reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reading-map {
+    max-height: 1.8rem;
+    overflow-y: auto;
+    padding: 2px 10px;
+  }
+
+  .reta-workspace .reta-reader-card:not(.is-horizontal) > .reta-reading-map.is-expanded {
+    max-height: min(45dvh, 30rem);
+  }
+
+  .reta-workspace .reta-readhead-details { display: none; }
+  .reta-workspace .reta-readhead-details.is-open { display: block; }
+  .reta-workspace .reta-map-heading { display: none; }
+  .reta-workspace .reta-readhead-toggle { min-height: 1.05rem; padding-block: 0; font-size: 0.62rem; }
+  .reta-workspace .reta-immersive-toggle { padding: 0.12rem 0.5rem; font-size: 0.6rem; line-height: 1.15; }
+
+  .reta-workspace.is-immersive {
+    min-height: 100dvh;
+    padding: 0 !important;
+  }
+
+  .reta-workspace.is-immersive .reta-workspace-top-actions,
+  .reta-workspace.is-immersive .reta-workspace-sharing,
+  .reta-workspace.is-immersive .reta-return-group,
+  .reta-workspace.is-immersive .reta-reader-header,
+  .reta-workspace.is-immersive .reta-reader-card-heading,
+  .reta-workspace.is-immersive .reta-reader-controls {
+    display: none !important;
+  }
+
+  .reta-workspace.is-immersive > .max-w-7xl,
+  .reta-workspace.is-immersive .reta-reader-grid,
+  .reta-workspace.is-immersive .reta-reader-card {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    min-height: 0;
+    margin: 0;
+  }
+
+  .reta-workspace.is-immersive .reta-reader-grid { display: block; }
+
+  .reta-workspace.is-immersive .reta-reader-card {
+    display: block;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .reta-workspace.is-immersive .reta-reading-map {
+    position: fixed;
+    z-index: 50;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: min(22dvh, 11rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    border: 0;
+    border-top: 1px solid rgb(120 106 109 / 20%);
+    border-radius: 0.9rem 0.9rem 0 0;
+    padding: 0.08rem 1.25rem calc(0.08rem + env(safe-area-inset-bottom));
+    box-shadow: 0 -5px 20px rgb(54 34 38 / 8%);
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-toggle {
+    min-height: 1.05rem;
+    padding-block: 0.1rem;
+    font-size: 0.62rem;
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-details {
+    display: none;
+    max-height: 16dvh;
+    overflow: auto;
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-details.is-open { display: block; }
+  .reta-workspace.is-immersive .reta-map-heading { display: none; }
+  .reta-workspace.is-immersive .reta-readhead-toggle { color: inherit; }
+
+  .reta-workspace.is-immersive .reta-reader-card > .reta-reader-body {
+    width: 100%;
+    height: 100dvh !important;
+    max-height: 100dvh;
+    min-height: 0;
+    padding: calc(0.75rem + 50px) 4rem calc(min(22dvh, 11rem) + 0.5rem) !important;
+  }
+}
+
+/* Readhead stays visible at a compact height; its map never needs an expand action. */
+.reta-readhead-status {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: inherit;
+  font-size: 0.62rem;
+  line-height: 1.2;
+}
+
+.reta-workspace .reta-readhead-details {
+  display: block !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.reta-workspace .reta-map-track { margin-top: 0.65rem; }
+.reta-workspace .reta-map-interactive { padding-bottom: 0.45rem; }
+.reta-workspace .reta-map-legend { margin-top: 0.35rem !important; }
+
+.reta-immersive-control {
+  flex: 0 0 auto;
+  min-height: 1.45rem;
+  border: 1px solid #eed5d8;
+  border-radius: 999px;
+  background: #fffdfa;
+  padding: 0.12rem 0.5rem;
+  color: #a6445a;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.reta-immersive-auto-settings {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.15rem 0 0.3rem;
+  color: inherit;
+}
+
+.reta-immersive-auto-settings input { min-width: 0; flex: 1; accent-color: #bf596f; }
+
+@media (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
+  .reta-workspace:not(.is-immersive) .reta-reader-card:not(.is-horizontal) > .reta-reading-map {
+    max-height: min(30dvh, calc(8rem + 2cm));
+    overflow: auto;
+    padding: 0.1rem 0.45rem !important;
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-details {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .reta-workspace .reta-reader-card.is-horizontal .reta-map-interactive { min-height: 7rem; }
+
+  .reta-workspace.is-immersive .reta-reading-map {
+    max-height: min(18dvh, 8rem);
+    padding: 0.1rem 0.45rem calc(0.1rem + env(safe-area-inset-bottom));
+  }
+
+  .reta-workspace.is-immersive .reta-reader-card:not(.is-horizontal) > .reta-reader-body,
+  .reta-workspace.is-immersive .reta-reader-card.is-horizontal > .reta-reader-body {
+    padding-bottom: calc(min(18dvh, 8rem) + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (min-width: 1025px) {
+  .reta-workspace:not(.is-immersive) .reta-reader-card:not(.is-horizontal) > .reta-reading-map {
+    max-height: min(30dvh, calc(8rem + 2cm));
+    overflow: auto;
+    padding: 0.1rem 0.65rem;
+  }
+
+  .reta-workspace.is-immersive .reta-reading-map {
+    max-height: min(18dvh, 8rem);
+    padding: 0.1rem 0.65rem calc(0.1rem + env(safe-area-inset-bottom));
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-details {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .reta-workspace.is-immersive .reta-reader-card > .reta-reader-body {
+    padding-bottom: calc(min(18dvh, 8rem) + 0.5rem) !important;
+  }
+}
+
+.reta-immersive-actions {
+  position: fixed;
+  z-index: 60;
+  top: max(0.75rem, env(safe-area-inset-top));
+  right: max(0.75rem, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border: 1px solid rgb(120 106 109 / 16%);
+  border-radius: 999px;
+  background: rgb(255 253 250 / 94%);
+  box-shadow: 0 3px 14px rgb(54 34 38 / 10%);
+  backdrop-filter: blur(10px);
+}
+
+.reta-immersive-action-button {
+  display: inline-flex;
+  width: 2.2rem;
+  height: 2.2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #eed5d8;
+  border-radius: 999px;
+  background: #fffdfa;
+  color: #a6445a;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.reta-immersive-action-button[aria-pressed="true"] { background: #fcf0f1; }
+
+.reta-workspace.is-immersive .reta-mobile-panel {
+  right: 1rem;
+  left: auto;
+  bottom: 1rem;
+  width: min(30rem, calc(100vw - 2rem));
+  max-height: min(78dvh, calc(100dvh - 2rem));
+  margin: 0;
+}
+
+@media (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
+  .reta-workspace:not(.is-immersive) .reta-reader-card:not(.is-horizontal) > .reta-reader-body,
+  .reta-workspace:not(.is-immersive) .reta-reader-card.is-horizontal > .reta-reader-body {
+    height: clamp(400px, calc(100dvh - 13rem - env(safe-area-inset-bottom)), 820px) !important;
+    min-height: 400px !important;
+  }
+}
+
+@media (min-width: 1025px) {
+  .reta-workspace:not(.is-immersive) .reta-reader-card:not(.is-horizontal) {
+    height: calc(100dvh - 4rem);
+  }
+
+  .reta-workspace:not(.is-immersive) .reta-reader-card.is-horizontal > .reta-reader-body {
+    height: 84dvh !important;
+    max-height: 84dvh;
+  }
+}
+
+@media (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
+  .reta-workspace.is-immersive .reta-reading-map {
+    height: clamp(12rem, 34dvh, 24rem);
+    max-height: min(42dvh, 26rem);
+    display: flex;
+    flex-direction: column;
+    padding: 0.65rem 0.75rem calc(0.65rem + env(safe-area-inset-bottom));
+    overflow: hidden;
+  }
+
+  .reta-workspace.is-immersive .reta-map-track {
+    margin-top: 2rem;
+  }
+
+  .reta-workspace.is-immersive .reta-map-interactive {
+    padding-bottom: 1rem;
+  }
+
+  .reta-workspace.is-immersive .reta-reader-card.is-horizontal .reta-map-interactive {
+    min-height: 12rem;
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-details {
+    display: block !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none !important;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .reta-workspace.is-immersive .reta-reader-card:not(.is-horizontal) > .reta-reader-body,
+  .reta-workspace.is-immersive .reta-reader-card.is-horizontal > .reta-reader-body {
+    padding-bottom: calc(min(18dvh, 8rem) + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (min-width: 1025px) {
+  .reta-workspace.is-immersive .reta-reading-map {
+    height: clamp(16rem, 34dvh, 24rem);
+    max-height: min(42dvh, 26rem);
+    display: flex;
+    flex-direction: column;
+    padding: 0.8rem 1.25rem calc(0.8rem + env(safe-area-inset-bottom));
+    overflow: hidden;
+  }
+
+  .reta-workspace.is-immersive .reta-map-track {
+    margin-top: 2rem;
+  }
+
+  .reta-workspace.is-immersive .reta-map-interactive {
+    padding-bottom: 1rem;
+  }
+
+  .reta-workspace.is-immersive .reta-reader-card.is-horizontal .reta-map-interactive {
+    min-height: 18rem;
+  }
+
+  .reta-workspace.is-immersive .reta-readhead-details {
+    display: block !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none !important;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .reta-workspace.is-immersive .reta-reader-card > .reta-reader-body {
+    padding-bottom: calc(min(18dvh, 8rem) + 0.5rem) !important;
+  }
+}
+
+/* Immersive reading uses real grid rows so the readhead cannot be squeezed
+   or overlap the article. The article consumes the remaining row height. */
+.reta-workspace.is-immersive .reta-reader-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) 100px !important;
+  grid-template-areas: "body" "footprints" !important;
+  width: 100%;
+  height: 100dvh !important;
+  min-height: 0 !important;
+  max-height: 100dvh;
+  overflow: hidden !important;
+}
+
+.reta-workspace.is-immersive .reta-reader-card > .reta-reader-body {
+  grid-area: body;
+  width: 100%;
+  height: auto !important;
+  min-width: 0;
+  min-height: 0 !important;
+  max-height: none !important;
+  padding-bottom: 0.5rem !important;
+}
+
+.reta-workspace.is-immersive .reta-reader-card > .reta-reading-map {
+  position: relative !important;
+  inset: auto !important;
+  z-index: 1;
+  grid-area: footprints;
+  display: flex !important;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0 !important;
+  max-height: none !important;
+  flex: 0 0 auto !important;
+  overflow: hidden;
+  padding: 0.4rem 1rem calc(0.4rem + env(safe-area-inset-bottom)) !important;
+  border-top: 1px solid rgb(120 106 109 / 20%);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.reta-workspace.is-immersive .reta-readhead-toolbar {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  gap: 0.5rem;
+  padding-bottom: 0.25rem;
+}
+
+.reta-workspace.is-immersive .reta-readhead-details {
+  display: block !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none !important;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.reta-workspace.is-immersive .reta-reader-card.is-horizontal .reta-map-interactive {
+  min-height: 0 !important;
+}
+
+/* A dedicated vertical readhead rail for immersive horizontal reading. */
+.reta-workspace.is-horizontal-immersive {
+  --reta-readhead-sidebar-width: clamp(7.5rem, 22vw, 12.5rem);
+}
+
+.reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal {
+  --reta-side-map-width: var(--reta-readhead-sidebar-width);
+  grid-template-columns: minmax(0, 1fr) var(--reta-readhead-sidebar-width) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  grid-template-areas: "body footprints" !important;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal > .reta-reader-body {
+  grid-area: body;
+  justify-self: stretch;
+}
+
+.reta-workspace.is-horizontal-immersive .horizontal-reading-content {
+  width: min(100%, 78rem);
+  margin-inline: auto;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal > .reta-reading-map {
+  grid-area: footprints;
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid rgb(120 106 109 / 18%);
+  padding: 0.9rem 0.65rem calc(0.75rem + env(safe-area-inset-bottom)) !important;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-readhead-toolbar {
+  display: block;
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 0.35rem 0.1rem 0.8rem;
+  border-bottom: 1px solid rgb(120 106 109 / 12%);
+}
+
+.reta-workspace.is-horizontal-immersive .reta-readhead-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: start;
+  font-size: 0.78rem;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-readhead-status > span:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-readhead-status > span:last-child {
+  padding-top: 0.05rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #a6445a;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-readhead-details {
+  display: flex !important;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
+}
+
+.reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-interactive {
+  position: relative;
+  display: block;
+  flex: 1 1 0;
+  min-height: 0 !important;
+  padding: 0 0 0.3rem;
+  overflow: visible;
+}
+
+.reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-track {
+  left: 34px;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 3px;
+  border-radius: 999px;
+  background: #e9e7e5;
+}
+
+.reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-participant {
+  z-index: 3;
+  width: calc(var(--reta-side-map-width) - 2.55rem);
+  align-items: flex-start !important;
+}
+
+.reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-name {
+  left: 16px;
+  right: auto;
+  width: calc(50% - 0.5rem);
+  max-width: none;
+  min-height: 1.2rem;
+  display: flex;
+  align-items: center;
+  overflow: visible !important;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+  text-overflow: clip !important;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-participant:nth-of-type(even) .reta-map-name {
+  left: calc(50% + 0.5rem);
+  width: calc(50% - 0.5rem);
+}
+
+.reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-heart {
+  left: -31px;
+  z-index: 4;
+}
+
+.reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-reaction-card {
+  z-index: 8;
+  left: 0.2rem !important;
+  right: 0.2rem;
+  width: auto;
+  max-width: none;
+  max-height: min(35dvh, 16rem);
+}
+
+.reta-workspace.is-horizontal-immersive .reta-map-legend {
+  flex: 0 0 auto;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-top: 0.35rem !important;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgb(120 106 109 / 10%);
+  font-size: 0.65rem;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-horizontal-readhead-actions {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgb(120 106 109 / 12%);
+}
+
+.reta-workspace.is-horizontal-immersive .reta-horizontal-readhead-button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 2.2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #eed5d8;
+  border-radius: 0.6rem;
+  background: #fffdfa;
+  padding: 0.3rem 0.4rem;
+  color: #a6445a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-horizontal-readhead-button:last-child {
+  grid-column: 1 / -1;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-horizontal-readhead-speed {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.45rem;
+  color: #786a6d;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-horizontal-readhead-speed input {
+  width: 100%;
+  accent-color: #bf596f;
+}
+
+.reta-workspace.is-horizontal-immersive .reta-immersive-actions {
+  right: calc(var(--reta-readhead-sidebar-width) + max(0.75rem, env(safe-area-inset-right)) + 2rem);
+}
+
+@media (max-width: 639px) {
+  .reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal > .reta-reading-map {
+    padding-inline: 0.45rem !important;
+  }
+
+  .reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-track {
+    left: 18px;
+  }
+
+  .reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-name {
+    left: 16px;
+    font-size: 0.62rem;
+  }
+
+  .reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-participant:nth-of-type(even) .reta-map-name {
+    left: calc(50% + 0.5rem);
+  }
+
+  .reta-workspace.is-horizontal-immersive .is-horizontal .reta-map-heart { left: -16px; }
+}
+
+.reta-workspace .reta-reader-card.is-horizontal .horizontal-reading-content {
+  width: min(100%, 78rem);
+  margin-inline: auto;
+}
+
+.reta-workspace .reta-reading-map.reta-horizontal-readhead {
+  position: relative;
+  grid-area: footprints;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  border-left: 1px solid rgb(120 106 109 / 18%);
+  padding: 0.9rem 0.65rem calc(0.75rem + env(safe-area-inset-bottom)) !important;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-readhead-toolbar {
+  display: block;
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 0.35rem 0.1rem 0.8rem;
+  border-bottom: 1px solid rgb(120 106 109 / 12%);
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-readhead-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  align-items: start;
+  font-size: 0.78rem;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-readhead-status > span:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-readhead-status > span:first-child > span:last-child {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-readhead-status > span:last-child {
+  padding-top: 0.05rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #a6445a;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-readhead-details {
+  display: flex !important;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-map-interactive {
+  position: relative;
+  display: block;
+  flex: 1 1 0;
+  min-height: 0 !important;
+  padding: 0 0 0.3rem;
+  overflow: visible;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-map-track {
+  left: 34px;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 3px;
+  border-radius: 999px;
+  background: #e9e7e5;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-map-participant {
+  z-index: 3;
+  width: calc(var(--reta-side-map-width, 12.5rem) - 2.55rem);
+  align-items: flex-start !important;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-map-name {
+  left: 16px;
+  right: auto;
+  width: calc(50% - 0.5rem);
+  max-width: none;
+  min-height: 1.2rem;
+  display: flex;
+  align-items: center;
+  overflow: visible !important;
+  overflow-wrap: anywhere;
+  white-space: normal !important;
+  text-overflow: clip !important;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-map-participant:nth-of-type(even) .reta-map-name {
+  left: calc(50% + 0.5rem);
+  width: calc(50% - 0.5rem);
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-map-heart {
+  left: -31px;
+  z-index: 4;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-map-reaction-card {
+  z-index: 8;
+  left: 0.2rem !important;
+  right: 0.2rem;
+  width: auto;
+  max-width: none;
+  max-height: min(35dvh, 16rem);
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-map-legend {
+  flex: 0 0 auto;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-top: 0.35rem !important;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgb(120 106 109 / 10%);
+  font-size: 0.65rem;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-horizontal-readhead-actions {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgb(120 106 109 / 12%);
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-horizontal-readhead-button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 2.2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #eed5d8;
+  border-radius: 0.6rem;
+  background: #fffdfa;
+  padding: 0.3rem 0.4rem;
+  color: #a6445a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-horizontal-readhead-button:last-child {
+  grid-column: 1 / -1;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-horizontal-readhead-speed {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.45rem;
+  color: #786a6d;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.reta-workspace .reta-horizontal-readhead .reta-horizontal-readhead-speed input {
+  width: 100%;
+  accent-color: #bf596f;
+}
+
+@media (max-width: 639px) {
+  .reta-workspace .reta-reading-map.reta-horizontal-readhead {
+    padding-inline: 0.45rem !important;
+  }
+
+  .reta-workspace .reta-horizontal-readhead .reta-map-track { left: 18px; }
+  .reta-workspace .reta-horizontal-readhead .reta-map-name { font-size: 0.62rem; }
+  .reta-workspace .reta-horizontal-readhead .reta-map-heart { left: -16px; }
+}
+
+.reta-reading-mode-panel {
+  container-type: inline-size;
+  color: #4f4749;
+}
+
+.reta-workspace > .max-w-7xl {
+  width: 100%;
+  max-width: min(1500px, calc(100vw - 2rem));
+}
+
+.reta-reader-grid { width: 100%; min-width: 0; }
+
+@media (min-width: 1024px) {
+  .reta-workspace .reta-reader-grid {
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 380px);
+  }
+}
+
+.reta-reading-mode-panel button {
+  min-width: 0;
+  line-height: 1.35;
+  word-break: keep-all;
+}
+
+.reta-reading-mode-panel .reta-mode-picker button,
+.reta-reading-mode-panel .reta-layout-picker button {
+  min-height: 2.55rem;
+  padding-inline: 0.5rem;
+}
+
+.reta-reading-mode-panel .reta-reading-session-button {
+  width: 100%;
+  min-height: 2.65rem;
+  white-space: nowrap;
+}
+
+.reta-reading-mode-panel .reta-mode-picker .is-active {
+  box-shadow: inset 0 0 0 1px rgb(191 89 111 / 15%);
+}
+
+.reta-auto-scroll-disclosure { container-type: inline-size; }
+.reta-auto-scroll-disclosure > summary::-webkit-details-marker { display: none; }
+.reta-auto-scroll-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+}
+.reta-auto-scroll-summary-title { min-width: 0; white-space: nowrap; }
+.reta-auto-scroll-summary-state {
+  color: #82787a;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.reta-auto-scroll-summary-state.is-playing { color: #a6445a; }
+.reta-auto-scroll-disclosure > summary::after {
+  content: "⌄";
+  flex: 0 0 auto;
+  grid-column: 3;
+  grid-row: 1;
+  color: #a69b9d;
+  transition: transform 140ms ease;
+}
+.reta-auto-scroll-disclosure[open] > summary::after { transform: rotate(180deg); }
+
+@container (max-width: 20rem) {
+  .reta-auto-scroll-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0.4rem;
+    row-gap: 0.15rem;
+  }
+  .reta-auto-scroll-summary-state {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .reta-auto-scroll-disclosure > summary::after {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+.reta-auto-scroll-controls { container-type: inline-size; }
+.reta-auto-scroll-controls button { min-height: 2.35rem; white-space: nowrap; }
+.reta-auto-scroll-button { min-width: 2.7rem; }
+.reta-auto-scroll-play {
+  display: inline-flex;
+  min-width: 4.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid #eed5d8;
+  border-radius: 0.7rem;
+  background: #fff5f7;
+  padding: 0.45rem 0.65rem;
+  color: #a6445a;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.reta-auto-scroll-range { accent-color: #bf596f; }
+.reta-auto-scroll-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+.reta-auto-scroll-preset {
+  min-width: 0;
+  border: 1px solid #eee8e8;
+  border-radius: 0.65rem;
+  background: #f7f6f6;
+  padding: 0.45rem 0.25rem;
+  color: #6a6062;
+  font-size: 0.68rem;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+}
+.reta-auto-scroll-preset span { color: #908789; font-variant-numeric: tabular-nums; }
+.reta-auto-scroll-preset.is-selected {
+  border-color: #f0d5dc;
+  background: #fff0f3;
+  color: #a6445a;
+}
+.reta-auto-scroll-preset.is-selected span { color: #a6445a; }
+.reta-auto-scroll-edit {
+  display: flex;
+  width: 100%;
+  min-height: 2.2rem !important;
+  align-items: center;
+  gap: 0.4rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  padding: 0.25rem 0.1rem;
+  color: #a6445a;
+  font-size: 0.7rem;
+  text-align: left;
+}
+.reta-auto-scroll-edit:hover { background: #fff6f7; }
+
+@container (min-width: 22rem) {
+  .reta-auto-scroll-presets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1024px) {
+  .reta-workspace.is-immersive .reta-reader-card {
+    grid-template-rows: minmax(0, 1fr) clamp(10.5rem, 34dvh, 16rem) !important;
+  }
+
+  .reta-workspace.is-immersive .reta-reading-map {
+    padding-inline: 0.65rem !important;
+  }
+}
+
+/* In immersive horizontal reading, keep the readhead beside the text. */
+.reta-workspace.is-immersive .reta-reader-card.is-horizontal {
+  --reta-side-map-width: clamp(8rem, 22vw, 15rem);
+  grid-template-columns: minmax(0, 1fr) var(--reta-side-map-width) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  grid-template-areas: "body footprints" !important;
+}
+
+.reta-workspace.is-immersive .reta-reader-card.is-horizontal > .reta-reading-map {
+  border: 0;
+  border-left: 1px solid rgb(120 106 109 / 20%);
+  padding: 0.75rem 0.6rem calc(0.75rem + env(safe-area-inset-bottom)) !important;
+}
+
 /* Warm paper, berry-pink details and book-like cards for ReTA's entry screens. */
 .reta-entry {
   background-color: #fff8f3;
@@ -2241,4 +3537,34 @@ rt {
 .reta-reader-body.reader-theme-dark .reading-heading-unit {
   color: var(--reader-text-color, #FFFFFF) !important;
   background: #38332e !important;
+}
+
+/* Normal horizontal reading is a header plus a naturally sized two-column
+   main row. The existing reader-body height determines the row; the readhead
+   stretches alongside it and its central map takes the remaining flex space. */
+.reta-workspace:not(.is-immersive) .reta-reader-card.is-horizontal {
+  --reta-side-map-width: clamp(7.5rem, 22vw, 12.5rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--reta-side-map-width) !important;
+  grid-template-rows: auto auto !important;
+  grid-template-areas: "heading heading" "body footprints" !important;
+  height: auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.reta-workspace:not(.is-immersive) .reta-reader-card.is-horizontal > .reta-reader-body {
+  grid-area: body;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+
+.reta-workspace:not(.is-immersive) .reta-reader-card.is-horizontal > .reta-reading-map.reta-horizontal-readhead {
+  grid-area: footprints;
+  display: flex;
+  height: auto !important;
+  align-self: stretch;
+  min-height: 0;
+  overflow: hidden;
 }
