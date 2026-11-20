@@ -3568,3 +3568,130 @@ rt {
   min-height: 0;
   overflow: hidden;
 }
+
+/* Compact immersive readheads on touch devices while keeping them in their
+   own grid area so they never cover the reading text. */
+@media (max-width: 1024px) and (any-pointer: coarse) {
+  .reta-workspace.is-immersive:not(.is-horizontal-immersive) .reta-reader-card:not(.is-horizontal) {
+    height: 100dvh;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr) auto !important;
+  }
+
+  .reta-workspace.is-immersive:not(.is-horizontal-immersive) .reta-reader-card:not(.is-horizontal) > .reta-reader-body {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding-bottom: calc(clamp(6.5rem, 16dvh, 8.25rem) + env(safe-area-inset-bottom)) !important;
+  }
+
+  .reta-workspace.is-immersive:not(.is-horizontal-immersive) .reta-reader-card:not(.is-horizontal) > .reta-reading-map {
+    position: relative !important;
+    inset: auto !important;
+    width: 100%;
+    height: clamp(6.5rem, 16dvh, 8.25rem);
+    max-height: clamp(6.5rem, 16dvh, 8.25rem) !important;
+    min-height: 0 !important;
+    overflow: hidden;
+    padding: 0.25rem 0.55rem calc(0.25rem + env(safe-area-inset-bottom)) !important;
+  }
+
+  .reta-workspace.is-immersive:not(.is-horizontal-immersive) .reta-readhead-toolbar {
+    min-height: 1.5rem;
+    gap: 0.25rem;
+    padding-bottom: 0.15rem;
+  }
+
+  .reta-workspace.is-immersive:not(.is-horizontal-immersive) .reta-readhead-status {
+    padding: 0.08rem 0.25rem;
+    font-size: 0.58rem;
+  }
+
+  .reta-workspace.is-immersive:not(.is-horizontal-immersive) .reta-immersive-toggle,
+  .reta-workspace.is-immersive:not(.is-horizontal-immersive) .reta-immersive-control {
+    min-height: 1.45rem;
+    padding: 0.12rem 0.4rem;
+    font-size: 0.6rem;
+    line-height: 1.1;
+  }
+
+  .reta-workspace.is-immersive:not(.is-horizontal-immersive) .reta-readhead-details {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .reta-workspace.is-horizontal-immersive {
+    --reta-readhead-sidebar-width: clamp(6.5rem, 17vw, 9rem);
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal {
+    --reta-side-map-width: var(--reta-readhead-sidebar-width);
+    height: 100dvh;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) var(--reta-readhead-sidebar-width) !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal > .reta-reader-body {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding: calc(0.35rem + 50px) 0.5rem 0.5rem !important;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal > .reta-reading-map.reta-horizontal-readhead {
+    min-width: 0;
+    padding: 0.4rem 0.35rem calc(0.4rem + env(safe-area-inset-bottom)) !important;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-readhead-toolbar {
+    padding: 0.15rem 0 0.35rem;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-readhead-status {
+    gap: 0.15rem;
+    font-size: 0.62rem;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-readhead-status > span:last-child {
+    font-size: 0.72rem;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-map-track {
+    left: 21px;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-map-participant {
+    width: calc(var(--reta-side-map-width) - 1.9rem);
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-map-name {
+    min-height: 1rem;
+    padding: 0.08rem 0.25rem;
+    font-size: 0.58rem;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-map-legend {
+    gap: 0.3rem;
+    margin-top: 0.2rem !important;
+    padding-top: 0.2rem;
+    font-size: 0.56rem;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-horizontal-readhead-actions {
+    gap: 0.2rem;
+    padding-top: 0.3rem;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-horizontal-readhead-button {
+    min-height: 1.75rem;
+    padding: 0.2rem 0.2rem;
+    font-size: 0.6rem;
+  }
+
+  .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead .reta-horizontal-readhead-speed {
+    gap: 0.2rem;
+    padding-top: 0.25rem;
+    font-size: 0.58rem;
+  }
+}
