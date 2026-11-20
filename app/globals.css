@@ -2697,7 +2697,8 @@ rt {
   position: fixed;
   z-index: 60;
   top: max(0.75rem, env(safe-area-inset-top));
-  right: max(0.75rem, env(safe-area-inset-right));
+  right: auto;
+  left: max(0.75rem, env(safe-area-inset-left));
   display: flex;
   align-items: center;
   gap: 0.35rem;
@@ -2905,6 +2906,7 @@ rt {
 .reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal > .reta-reader-body {
   grid-area: body;
   justify-self: stretch;
+  padding-top: max(3.5rem, calc(env(safe-area-inset-top) + 2.75rem)) !important;
 }
 
 .reta-workspace.is-horizontal-immersive .horizontal-reading-content {
@@ -3073,10 +3075,6 @@ rt {
 .reta-workspace.is-horizontal-immersive .reta-horizontal-readhead-speed input {
   width: 100%;
   accent-color: #bf596f;
-}
-
-.reta-workspace.is-horizontal-immersive .reta-immersive-actions {
-  right: calc(var(--reta-readhead-sidebar-width) + max(0.75rem, env(safe-area-inset-right)) + 2rem);
 }
 
 @media (max-width: 639px) {
@@ -3637,6 +3635,7 @@ rt {
     min-height: 0 !important;
     max-height: none !important;
     padding: calc(0.35rem + 50px) 0.5rem 0.5rem !important;
+    padding-top: max(3.5rem, calc(env(safe-area-inset-top) + 2.75rem)) !important;
   }
 
   .reta-workspace.is-horizontal-immersive .reta-reader-card.is-horizontal > .reta-reading-map.reta-horizontal-readhead {

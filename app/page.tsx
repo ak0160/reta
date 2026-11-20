@@ -5412,6 +5412,76 @@ useEffect(() => {
     lockViewportToProgress(index, mode);
   };
 
+  // 端末の向きが変わる間は現在の読書単位を固定し、レイアウトが落ち着いてから
+  // 同じ単位を再表示する。回転中のscrollイベントは進行・後退ログへ反映しない。
+  useEffect(() => {
+    let pendingIndex: number | null = null;
+    let settleTimer: number | null = null;
+    let restoreFrame1 = 0;
+    let restoreFrame2 = 0;
+    let releaseTimer: number | null = null;
+    let orientation = window.innerWidth >= window.innerHeight ? "landscape" : "portrait";
+
+    const beginRestore = () => {
+      if (!hasSelectedWorkRef.current || !isInitialProgressResolvedRef.current || readingUnits.length === 0) return;
+      if (pendingIndex === null) {
+        pendingIndex = Math.max(0, Math.min(currentParagraphIndexRef.current, readingUnits.length - 1));
+        isProgrammaticScrollRef.current = true;
+        restoreGuardUntilRef.current = Date.now() + 5000;
+      }
+
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        settleTimer = null;
+        restoreFrame1 = window.requestAnimationFrame(() => {
+          restoreFrame2 = window.requestAnimationFrame(() => {
+            if (pendingIndex === null || !hasSelectedWorkRef.current) return;
+            const safeIndex = Math.min(pendingIndex, Math.max(0, readingUnits.length - 1));
+            currentParagraphIndexRef.current = safeIndex;
+            lastStableParagraphIndexRef.current = safeIndex;
+            setCurrentParagraphIndex(safeIndex);
+            lockViewportToProgress(safeIndex, layoutModeRef.current);
+            pendingIndex = null;
+
+            if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+            releaseTimer = window.setTimeout(() => {
+              releaseTimer = null;
+              restoreGuardUntilRef.current = 0;
+              isProgrammaticScrollRef.current = false;
+            }, 120);
+          });
+        });
+      }, 180);
+    };
+
+    const handleOrientationChange = () => {
+      orientation = window.innerWidth >= window.innerHeight ? "landscape" : "portrait";
+      beginRestore();
+    };
+
+    const handleResize = () => {
+      const nextOrientation = window.innerWidth >= window.innerHeight ? "landscape" : "portrait";
+      if (nextOrientation === orientation && pendingIndex === null) return;
+      orientation = nextOrientation;
+      beginRestore();
+    };
+
+    window.addEventListener("orientationchange", handleOrientationChange);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("orientationchange", handleOrientationChange);
+      window.removeEventListener("resize", handleResize);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+      if (restoreFrame1) window.cancelAnimationFrame(restoreFrame1);
+      if (restoreFrame2) window.cancelAnimationFrame(restoreFrame2);
+      if (pendingIndex !== null) {
+        restoreGuardUntilRef.current = 0;
+        isProgrammaticScrollRef.current = false;
+      }
+    };
+  }, [readingUnits.length]);
+
   const changeImmersiveMode = (enabled: boolean) => {
     if (enabled === isImmersive) return;
     pendingImmersiveIndexRef.current = currentParagraphIndexRef.current;
