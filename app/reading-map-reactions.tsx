@@ -24,12 +24,14 @@ export function groupMapReactions(reactions: MapReaction[], currentIndex: number
   return groups;
 }
 
-export default function ReadingMapReactions({ reactions, currentIndex, getPercent, children, vertical = false }: {
+export default function ReadingMapReactions({ reactions, currentIndex, getPercent, children, vertical = false, onSelectionChange, showInlineNote = true }: {
   reactions: MapReaction[];
   vertical?: boolean;
   currentIndex: number;
   getPercent: (index: number) => number;
   children: ReactNode;
+  onSelectionChange?: (paragraphIndex: number | null) => void;
+  showInlineNote?: boolean;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const wrapper = useRef<HTMLDivElement>(null);
@@ -42,12 +44,9 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
   const open = !!active?.length;
   const close = (returnFocus = false) => {
     setSelected(null);
+    onSelectionChange?.(null);
     if (returnFocus) trigger.current?.focus({ preventScroll: true });
   };
-
-  useEffect(() => {
-    if (selected !== null && !groups.has(selected)) setSelected(null);
-  }, [selected, groups]);
 
   useEffect(() => {
     if (!open) return;
@@ -55,13 +54,18 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
     const outside = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      const inCard = card.current?.contains(target);
+      const inCard = card.current?.contains(target)
+        || document.querySelector<HTMLElement>("[data-reta-external-reaction-card]")?.contains(target);
       const inHeart = target instanceof Element && wrapper.current?.contains(target) && target.closest(".reta-map-heart");
-      if (!inCard && !inHeart) setSelected(null);
+      if (!inCard && !inHeart) {
+        setSelected(null);
+        onSelectionChange?.(null);
+      }
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setSelected(null);
+      onSelectionChange?.(null);
       trigger.current?.focus({ preventScroll: true });
     };
     document.addEventListener("pointerdown", outside);
@@ -70,7 +74,7 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
       document.removeEventListener("pointerdown", outside);
       document.removeEventListener("keydown", escape);
     };
-  }, [open, selected]);
+  }, [open, selected, onSelectionChange]);
 
   return <div ref={wrapper} className={`reta-map-interactive${open ? " is-open" : ""}${vertical ? " is-vertical" : ""}`} onKeyDown={event => {
     // カード内のキー操作で本文の読書ショートカットを発火させない。
@@ -90,11 +94,13 @@ export default function ReadingMapReactions({ reactions, currentIndex, getPercen
         aria-controls={selected === index ? id : undefined}
         onClick={event => {
           trigger.current = event.currentTarget;
-          setSelected(current => current === index ? null : index);
+          const next = selected === index ? null : index;
+          setSelected(next);
+          onSelectionChange?.(next);
         }}
       ><span aria-hidden="true">♥</span>{items.length > 1 && <span className="reta-map-heart-count" aria-hidden="true">{items.length}</span>}</button>)}
     </div>
-    {open && selected !== null && <section
+    {showInlineNote && open && selected !== null && <section
       ref={card}
       onKeyDown={event => {
         event.stopPropagation();

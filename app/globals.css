@@ -2741,6 +2741,65 @@ rt {
 
 .reta-immersive-action-button[aria-pressed="true"] { background: #fcf0f1; }
 
+.reta-immersive-comment-notice {
+  position: fixed;
+  /* Render above the readhead and immersive controls; this is portaled to body. */
+  z-index: 1100;
+  left: 50%;
+  bottom: calc(clamp(2.8rem, 18dvh, 8.5rem) + env(safe-area-inset-bottom) + 0.5rem);
+  width: min(23rem, calc(100vw - 1.5rem));
+  max-height: min(22dvh, 12rem);
+  pointer-events: none;
+  transform: translateX(-50%);
+  visibility: visible;
+}
+
+.reta-immersive-comment-card {
+  position: relative;
+  max-height: min(22dvh, 12rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgb(120 106 109 / 20%);
+  border-radius: 0.85rem;
+  padding: 0.55rem 0.7rem;
+  box-shadow: 0 5px 18px rgb(54 34 38 / 15%);
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+}
+
+.reta-immersive-comment-item + .reta-immersive-comment-item {
+  margin-top: 0.4rem;
+  border-top: 1px solid rgb(120 106 109 / 14%);
+  padding-top: 0.4rem;
+}
+
+.reta-immersive-comment-item { border-inline-start: 3px solid; padding-inline-start: 0.5rem; }
+.reta-immersive-comment-author { display: flex; align-items: center; gap: 0.35rem; font-size: 0.68rem; font-weight: 700; line-height: 1.2; }
+.reta-immersive-comment-dot { width: 0.45rem; height: 0.45rem; flex: 0 0 auto; border-radius: 999px; }
+.reta-immersive-comment-emoji { font-size: 0.85rem; line-height: 1; }
+.reta-immersive-comment-text { margin-top: 0.15rem; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 0.72rem; line-height: 1.35; }
+
+@media (max-width: 1024px) and (any-pointer: coarse) {
+  .reta-immersive-comment-notice.is-bottom-readhead {
+    bottom: calc(clamp(6.5rem, 16dvh, 8.25rem) + env(safe-area-inset-bottom) + 0.5rem);
+  }
+
+  .reta-immersive-comment-notice.is-horizontal-readhead {
+    left: calc((100vw - clamp(6.5rem, 17vw, 9rem)) / 2);
+    width: min(23rem, calc(100vw - clamp(6.5rem, 17vw, 9rem) - 1.5rem));
+  }
+
+  .reta-immersive-comment-card { padding: 0.45rem 0.6rem; }
+  .reta-immersive-comment-text { font-size: 0.68rem; }
+}
+
+.reta-immersive-comment-notice.is-horizontal-readhead {
+  left: calc((100vw - clamp(8rem, 22vw, 15rem)) / 2);
+  right: auto;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  width: min(23rem, calc(100vw - clamp(8rem, 22vw, 15rem) - 1.5rem));
+}
+
 .reta-workspace.is-immersive .reta-mobile-panel {
   right: 1rem;
   left: auto;

@@ -31,6 +31,7 @@ import {
   type CSSProperties,
 } from "react";
 import { auth, db } from "./firebase";
+import { createPortal } from "react-dom";
 
 import {
   addDoc,
@@ -1636,6 +1637,7 @@ export default function Home() {
 
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [reactions, setReactions] = useState<Reaction[]>([]);
+  const [selectedImmersiveReactionIndex, setSelectedImmersiveReactionIndex] = useState<number | null>(null);
   const [userReadingProgresses, setUserReadingProgresses] = useState<
     UserReadingProgress[]
   >([]);
@@ -1932,6 +1934,24 @@ export default function Home() {
       })
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [reactions, selectedStory, currentWork, currentGroup]);
+
+  const selectedImmersiveReactions = useMemo(() => {
+    if (!isImmersive || readerMode !== "shared" || selectedImmersiveReactionIndex === null) return [];
+    return visibleReactions.filter(reaction =>
+      reaction.paragraphIndex === selectedImmersiveReactionIndex
+      && reaction.paragraphIndex <= currentParagraphIndex,
+    );
+  }, [
+    isImmersive,
+    readerMode,
+    selectedImmersiveReactionIndex,
+    visibleReactions,
+    currentParagraphIndex,
+  ]);
+
+  useEffect(() => {
+    setSelectedImmersiveReactionIndex(null);
+  }, [isImmersive, readerMode, currentGroup?.id, currentWork.workId]);
 
   const createLoginEmail = (username: string) => {
     const safeName = username.trim().toLowerCase();
@@ -7266,11 +7286,13 @@ if (readingSessionIdRef.current) {
               </div>}
               <div id="reta-readhead-details" className="reta-readhead-details">
               <ReadingMapReactions
-                key={`${authUser.uid}:${currentGroup?.id ?? ""}:${currentWork.workId}:${selectedStory}:${layoutMode}`}
+                key={`${authUser.uid}:${currentGroup?.id ?? ""}:${currentWork.workId}:${selectedStory}:${layoutMode}:${readerMode}`}
                 vertical={layoutMode === "horizontal"}
-                reactions={visibleReactions}
+                reactions={readerMode === "shared" ? visibleReactions : []}
                 currentIndex={currentParagraphIndex}
                 getPercent={index => getMapPercent(index, readingUnits.length)}
+                onSelectionChange={isImmersive && readerMode === "shared" ? setSelectedImmersiveReactionIndex : undefined}
+                showInlineNote={!isImmersive}
               >
                 {visibleParticipants
                   .filter(
@@ -7802,6 +7824,30 @@ if (readingSessionIdRef.current) {
           >{icon}</button>
         ))}
       </div>}
+
+      {isImmersive && readerMode === "shared" && selectedImmersiveReactions.length > 0 && typeof document !== "undefined" && createPortal(
+        <div className={`reta-immersive-comment-notice ${layoutMode === "horizontal" ? "is-horizontal-readhead" : "is-bottom-readhead"}`} aria-label="共有読みのコメント">
+          <section className="reta-immersive-comment-card" data-reta-external-reaction-card="true" style={{
+            backgroundColor: readerSettings.background === "dark" ? "#2d2d2d"
+              : readerSettings.background === "sepia" ? "#fbf2e3" : "#fffdfa",
+            color: readerSettings.background === "dark" ? "#ffffff"
+              : readerSettings.background === "sepia" ? "#59432d" : "#403638",
+          }}>
+            {selectedImmersiveReactions.map(reaction => {
+              const color = colorsForParticipant(reaction.participantId);
+              return <article key={reaction.id} className="reta-immersive-comment-item" style={{ borderInlineStartColor: color.dot }}>
+                <div className="reta-immersive-comment-author" style={{ color: readerSettings.background === "dark" ? "#ffffff" : color.text }}>
+                  <span className="reta-immersive-comment-dot" style={{ backgroundColor: color.dot }} aria-hidden="true" />
+                  <span>{reaction.participantName || "利用者"}</span>
+                  <span className="reta-immersive-comment-emoji" aria-hidden="true">{reaction.emoji}</span>
+                </div>
+                {reaction.comment.trim() && <p className="reta-immersive-comment-text">{reaction.comment}</p>}
+              </article>;
+            })}
+          </section>
+        </div>,
+        document.body,
+      )}
 
       {mobilePanel && (
         <div className={`fixed inset-0 ${isImmersive ? "z-[80]" : "z-40 lg:hidden"}`}>
