@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   READING_BACKGROUND_OPTIONS,
   READING_FONT_LABELS,
@@ -58,12 +59,12 @@ export default function ReadingSettingsPanel({
       aria-label="読書設定を開く"
       className="inline-flex h-10 min-w-10 items-center justify-center rounded-full border border-[#eed5d8] bg-white px-3 text-base font-semibold tracking-[-0.06em] text-[#a6445a] shadow-sm transition hover:bg-[#fff4f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#bf7182]"
     >Aa</button>
-    {open && <>
+    {open && typeof document !== "undefined" && createPortal(
       <section
         role="dialog"
         aria-label="読書設定"
         style={{ "--settings-sheet-height": `${sheetHeight}dvh` } as CSSProperties}
-        className="reading-settings-dialog fixed right-3 top-20 z-[1100] max-h-[calc(100dvh-6rem)] w-[min(23rem,calc(100vw-1.5rem))] overflow-y-auto rounded-[1.4rem] border border-[#eadadd] bg-[#fffdfa] p-4 text-[#3f3435] shadow-[0_18px_55px_rgba(54,34,38,0.2)] sm:right-6 sm:top-24 sm:p-5"
+        className="reading-settings-dialog z-[1100] w-[min(23rem,calc(100vw-1rem))] overflow-y-auto rounded-[1.4rem] border border-[#eadadd] bg-[#fffdfa] p-4 text-[#3f3435] shadow-[0_18px_55px_rgba(54,34,38,0.2)] sm:p-5"
       >
         <button
           type="button"
@@ -165,7 +166,8 @@ export default function ReadingSettingsPanel({
         <button type="button" onClick={onReset} className="mt-5 min-h-10 w-full rounded-xl border border-[#eadadd] bg-white px-3 text-xs font-bold text-[#9f5265] transition hover:bg-[#fff4f6]">
           初期設定に戻す
         </button>
-      </section>
-    </>}
+      </section>,
+      document.body,
+    )}
   </>;
 }

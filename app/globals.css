@@ -2200,6 +2200,19 @@ rt {
   display: none;
 }
 
+.reading-settings-dialog {
+  --settings-panel-top: max(4.5rem, calc(env(safe-area-inset-top) + 4rem));
+  position: fixed;
+  top: var(--settings-panel-top);
+  right: max(8px, calc(env(safe-area-inset-right) + 8px));
+  left: auto;
+  width: min(23rem, calc(100vw - 2rem - env(safe-area-inset-left) - env(safe-area-inset-right)));
+  max-height: calc(100dvh - var(--settings-panel-top) - max(8px, calc(env(safe-area-inset-bottom) + 8px)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 @media (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
   .reta-workspace {
     min-height: 100dvh;
@@ -2459,15 +2472,17 @@ rt {
 
 @media (max-width: 639px) and (orientation: portrait) {
   .reading-settings-dialog {
-    inset: auto 0 0;
-    width: 100%;
+    top: auto;
+    right: max(8px, calc(env(safe-area-inset-right) + 8px));
+    bottom: max(8px, calc(env(safe-area-inset-bottom) + 8px));
+    left: max(8px, calc(env(safe-area-inset-left) + 8px));
+    width: auto;
     height: var(--settings-sheet-height, 38dvh);
-    max-height: calc(100dvh - env(safe-area-inset-top) - 0.5rem);
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem);
     padding: 0.25rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
-    border-radius: 1.35rem 1.35rem 0 0;
-    border-bottom: 0;
+    border-radius: 1.35rem;
     overscroll-behavior: contain;
-    box-shadow: 0 -12px 36px rgb(54 34 38 / 14%);
+    box-shadow: 0 12px 36px rgb(54 34 38 / 14%);
   }
 
   .reading-settings-sheet-handle {
@@ -2492,10 +2507,10 @@ rt {
 
 @media (min-width: 640px) and (max-width: 1024px) and (orientation: portrait) and (any-pointer: coarse) {
   .reading-settings-dialog {
-    top: max(1rem, env(safe-area-inset-top));
-    right: max(1rem, env(safe-area-inset-right));
+    top: max(8px, calc(env(safe-area-inset-top) + 8px));
+    right: max(8px, calc(env(safe-area-inset-right) + 8px));
     width: min(22rem, calc(100vw - 2rem));
-    max-height: min(72dvh, calc(100dvh - 2rem));
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem);
     padding: 1rem;
     overscroll-behavior: contain;
   }
